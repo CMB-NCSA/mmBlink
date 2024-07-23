@@ -103,16 +103,18 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
                           rms2D=False, box=(200, 200), filter_size=(3, 3), sigmaclip=None,
                           wcs=None, plot=False, plot_title=None):
 
-    # Compute 2D rms image
+    # Get the mean and std of the distribution
+    mean, sigma = norm.fit(data.flatten())
+
+    # Define the threshold, array in the case of rms2D
     if rms2D:
         bkg = compute_rms2D(data, box=box, filter_size=filter_size, sigmaclip=sigmaclip)
-        sigma = bkg.background
+        sigma2D = bkg.background
+        threshold = nsigma_thresh * sigma2D
+        print("2D RMS computed")
     else:
-        # Get the mean and std of the distribution
-        mean, sigma = norm.fit(data.flatten())
+        threshold = nsigma_thresh * sigma
 
-    # Define the threshold
-    threshold = nsigma_thresh * sigma
     # Perform segmentation and deblending
     finder = SourceFinder(npixels=npixels, nlevels=32, contrast=0.001, progress_bar=False)
     segm = finder(data, threshold)
@@ -129,16 +131,40 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
     # print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
     #          'kron_flux', 'kron_fluxerr', 'max_value', 'area'])
     if plot:
-        plot_detection(data, segm, cat, mean, sigma, nsigma=nsigma_thresh, plot_title=plot_title)
+
+        if rms2D:
+            fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(24, 6))
+        else:
+            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6))
+        plot_detection(ax1, data, cat, sigma, nsigma_plot=5, plot_title=plot_title)
+        plot_segmentation(ax2, segm, cat)
+        plot_distribution(ax3, data, mean, sigma, nsigma=nsigma_thresh)
+        if rms2D:
+            plot_rms2D(bkg.background, ax4)
+        plt.show()
 
     return segm, tbl
 
 
-def plot_detection(data, segm, cat, mean, sigma, nsigma=3, plot_title=None):
+def plot_rms2D(bkg, ax, nsigma_plot=5):
 
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6))
-    im1 = ax1.imshow(data, origin='lower', cmap='Greys_r', vmin=-5*sigma, vmax=5*sigma)
+    # Get the stats for the 2D rms
+    bkg_mean, bkg_sigma = norm.fit(bkg.flatten())
+    vmin = bkg_mean - nsigma_plot*bkg_sigma
+    vmax = bkg_mean + nsigma_plot*bkg_sigma
+    im = ax.imshow(bkg, origin='lower', cmap='Greys_r', vmin=vmin, vmax=vmax)
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    plt.colorbar(im, cax=cax)
+    ax.set_title('2D Noise Map')
 
+
+def plot_detection(ax1, data, cat, sigma, nsigma_plot=5, plot_title=None):
+    """
+    Function to plot the 2D data array and catalog produced by photutils
+    """
+    vlim = nsigma_plot*sigma
+    im1 = ax1.imshow(data, origin='lower', cmap='Greys_r', vmin=-vlim, vmax=+vlim)
     # create an axes on the right side of ax. The width of cax will be 5%
     # of ax and the padding between cax and ax will be fixed at 0.05 inch.
     divider = make_axes_locatable(ax1)
@@ -146,41 +172,38 @@ def plot_detection(data, segm, cat, mean, sigma, nsigma=3, plot_title=None):
     plt.colorbar(im1, cax=cax1)
     if plot_title:
         ax1.set_title(plot_title)
-
-    im2 = ax2.imshow(segm, origin='lower', cmap=segm.cmap,
-                     interpolation='nearest')
-    divider = make_axes_locatable(ax2)
-    cax2 = divider.append_axes("right", size="5%", pad=0.05)
-    plt.colorbar(im2, cax=cax2)
-    ax2.set_title('Segmentation Image')
     cat.plot_kron_apertures(ax=ax1, color='white', lw=0.5)
+
+
+def plot_segmentation(ax2, segm, cat):
+    """
+    Function to plot the segmentation image and catalog produce by photutils
+    """
+    im = ax2.imshow(segm, origin='lower', cmap=segm.cmap,
+                    interpolation='nearest')
+    divider = make_axes_locatable(ax2)
+    # create an axes on the right side of ax. The width of cax will be 5%
+    # of ax and the padding between cax and ax will be fixed at 0.05 inch.
+    cax2 = divider.append_axes("right", size="5%", pad=0.05)
+    plt.colorbar(im, cax=cax2)
+    ax2.set_title('Segmentation Image')
     cat.plot_kron_apertures(ax=ax2, color='white', lw=0.5)
-    plot_distribution(data, mean, sigma, axis=ax3, nsigma=nsigma)
-    plt.show()
 
 
-def plot_distribution(data, mean, sigma, axis=None, nsigma=3):
-
-    """Simple function to display distribution of data"""
-
+def plot_distribution(ax, data, mean, sigma, nsigma=3):
+    """
+    Function to display distribution of data as 1D
+    """
     # Flatten the data if needed
     if data.ndim != 1:
         data = data.flatten()
 
     legend = "$\\mu$: %.6f\n$\\sigma$: %.6f" % (mean, sigma)
-    if axis:
-        ax = axis
-    else:
-        plt.figure(figsize=(6, 6))
-        ax = plt
-
     # Plot data and fit
     nbins = int(data.shape[0]/5000.)
     hist = ax.hist(data, bins=nbins, density=True, alpha=0.6)
     ymin, ymax = hist[0].min(), hist[0].max()
     xmin, xmax = hist[1].min(), hist[1].max()
-    # xmin, xmax = plt.xlim()
-    # ymin, ymax = plt.ylim()
     x = np.linspace(xmin, xmax, 100)
     y = norm.pdf(x, mean, sigma)
     ax.plot(x, y)
@@ -189,17 +212,15 @@ def plot_distribution(data, mean, sigma, axis=None, nsigma=3):
     ax.plot(xx, yy, 'k--', linewidth=1)
     xx = [-nsigma*sigma, -nsigma*sigma]
     ax.plot(xx, yy, 'k--', linewidth=1)
-    if axis:
-        ax.set_ylim(ymin, ymax)
-    else:
-        ax.ylim(ymin, ymax)
+    ax.set_ylim(ymin, ymax)
     ax.legend([legend], frameon=False)
     text = f"${nsigma}\\sigma$"
     ax.text(0.05*(xmax-xmin) + nsigma*sigma, (ymax-ymin)/20., text, horizontalalignment='center')
     ax.text(-0.05*(xmax-xmin) - nsigma*sigma, (ymax-ymin)/20., text, horizontalalignment='center')
 
-    if axis:
-        ratio = 0.95
-        xleft, xright = ax.get_xlim()
-        ybottom, ytop = ax.get_ylim()
-        ax.set_aspect(abs((xright-xleft)/(ybottom-ytop))*ratio)
+    ratio = 0.95
+    xleft, xright = ax.get_xlim()
+    ybottom, ytop = ax.get_ylim()
+    ax.set_aspect(abs((xright-xleft)/(ybottom-ytop))*ratio)
+    ax.set_xlabel("Flux")
+    ax.set_title("1D Noise Distribution and Fit")

@@ -1,12 +1,5 @@
 #!/usr/bin/env python
-from astropy.io import fits
-from astropy import wcs
 import numpy
-from astropy import units
-from astropy.coordinates import SkyCoord
-from astropy.table import Table, vstack
-from astropy.coordinates import FK5
-import matplotlib.pyplot as plt
 import spt3g_detect.dtools as du
 import os
 from spt3g import core, maps
@@ -16,10 +9,11 @@ if __name__ == "__main__":
 
     # plot = False
     plot = True
-    nsigma = 3.5
+    nsigma_thresh = 3.5
     npixels = 20
     scan = '40-160-9'
     scan = '40-162-9'
+    rms2D = True
 
     flux = {}
     flux_wgt = {}
@@ -32,6 +26,8 @@ if __name__ == "__main__":
     g3filename_150 = f"{path}/etc/f150/mapmaker_RISING_SCAN_{scan}_noiseweighted_map_nside4096_flt_small.g3.gz"
     print(g3filename_090)
     # Read in the g3 files
+
+    plot_name = os.path.basename(g3filename_090)
 
     for frame in core.G3File(g3filename_090):
         # only read in the map
@@ -51,6 +47,6 @@ if __name__ == "__main__":
         print(flux_wgt[band])
         data = flux[band]
         wgt = flux_wgt[band]
-        segm[scan], cat[scan] = du.detect_with_photutils(data, wgt=None, nsigma_thresh=nsigma,
+        segm[scan], cat[scan] = du.detect_with_photutils(data, wgt=None, nsigma_thresh=nsigma_thresh,
                                                          npixels=npixels, wcs=frame['T'].wcs,
-                                                         plot=plot, plot_title=scan)
+                                                         rms2D=rms2D, plot=plot, plot_title=band)
