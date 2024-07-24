@@ -39,14 +39,13 @@ if __name__ == "__main__":
         print(f"Removing weights: {frame['Id']}")
         maps.RemoveWeights(frame, zero_nans=True)
         flux[band] = numpy.asarray(frame['T'])/core.G3Units.mJy
-        flux_wgt[band] = (numpy.asarray(frame['Wunpol'])*core.G3Units.mJy)
+        flux_wgt[band] = numpy.asarray(frame['Wunpol'].TT)*core.G3Units.mJy
         print("Min/Max", flux[band].min(), flux[band].max())
         print("Min/Max", flux_wgt[band].min(), flux_wgt[band].max())
-        print(band)
-        print(flux[band])
-        print(flux_wgt[band])
+        plot_name = f"{frame['ObservationID']}_{band}"
         data = flux[band]
-        wgt = flux_wgt[band]
-        segm[scan], cat[scan] = du.detect_with_photutils(data, wgt=None, nsigma_thresh=nsigma_thresh,
+        wgt = 1/flux_wgt[band]
+        segm[scan], cat[scan] = du.detect_with_photutils(data, wgt=wgt, nsigma_thresh=nsigma_thresh,
                                                          npixels=npixels, wcs=frame['T'].wcs,
-                                                         rms2D=rms2D, plot=plot, plot_title=band)
+                                                         rms2D=rms2D, plot=plot, plot_name=plot_name,
+                                                         plot_title=band)

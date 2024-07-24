@@ -5,8 +5,7 @@ from photutils.segmentation import SourceCatalog
 from scipy.stats import norm
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from astropy.stats import SigmaClip
-from photutils.background import StdBackgroundRMS
-from photutils.background import Background2D
+import photutils.background
 
 
 def stack_cols_lists(c1, c2, asscalar=False, append=False):
@@ -77,7 +76,11 @@ def max_list_of_list(list, np_array=True):
 
 
 def compute_rms2D(data, box=(200, 200), filter_size=(3, 3), sigmaclip=None):
-    # Change the name of the function
+
+    """
+    Compute a 2D map of the rms using photutils.Background2D and
+    photutils.StdBackgroundRMS
+    """
 
     # in case we want to clip values
     if sigmaclip:
@@ -86,22 +89,15 @@ def compute_rms2D(data, box=(200, 200), filter_size=(3, 3), sigmaclip=None):
         sigma_clip = None
 
     # Set up the background estimator
-    bkg_estimator = StdBackgroundRMS(sigma_clip)
-    bkg = Background2D(data, box, filter_size=filter_size, edge_method='pad',
-                       sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
-
-    bkgrms_value = bkg_estimator.calc_background_rms(data)
-    print(bkgrms_value)
-
-    mean, sigma = norm.fit(bkg.background.flatten())
-    print(mean, sigma)
-
+    bkg_estimator = photutils.background.StdBackgroundRMS(sigma_clip)
+    bkg = photutils.background.Background2D(data, box, filter_size=filter_size, edge_method='pad',
+                                            sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
     return bkg
 
 
 def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
                           rms2D=False, box=(200, 200), filter_size=(3, 3), sigmaclip=None,
-                          wcs=None, plot=False, plot_title=None):
+                          wcs=None, plot=False, plot_title=None, plot_name=None):
 
     # Get the mean and std of the distribution
     mean, sigma = norm.fit(data.flatten())
@@ -141,7 +137,11 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
         plot_distribution(ax3, data, mean, sigma, nsigma=nsigma_thresh)
         if rms2D:
             plot_rms2D(bkg.background, ax4)
-        plt.show()
+        if plot_name:
+            plt.savefig(f"{plot_name}.pdf")
+            print(f"Saved: {plot_name}.pdf")
+        else:
+            plt.show()
 
     return segm, tbl
 
