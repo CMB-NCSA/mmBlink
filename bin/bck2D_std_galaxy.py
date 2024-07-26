@@ -58,7 +58,7 @@ for band in flux.keys():
     divider = make_axes_locatable(plt.gca())
     cax = divider.append_axes("right", "5%", pad="3%")
     clb = plt.colorbar(ima, cax=cax)
-    clb.ax.set_title('$\sigma$ [mJy]', fontsize=12)
+    clb.ax.set_title('$\\sigma$ [mJy]', fontsize=12)
     plt.tight_layout()
     fig.savefig(f"galaxy2Dnoise_{band}.png")
     print(f"Saved: galaxy2Dnoise_{band}.png")
