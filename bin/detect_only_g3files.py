@@ -4,7 +4,6 @@ import spt3g_detect.dtools as du
 import os
 from spt3g import core, maps
 
-
 if __name__ == "__main__":
 
     # plot = False
