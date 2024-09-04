@@ -1,6 +1,8 @@
 # Mac files
 .DS_Store
 
+outdir/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

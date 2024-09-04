@@ -19,10 +19,12 @@ if __name__ == "__main__":
     flux_mask = {}
     segm = {}
     cat = {}
+    outdir = "outdir"
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
 
     for g3filename in g3files:
-        plot_name = os.path.basename(g3filename)
-        print(g3filename)
+        print(f"Opening file: {g3filename}")
         for frame in core.G3File(g3filename):
             # only read in the map
             if frame.type != core.G3FrameType.Map:
@@ -30,7 +32,7 @@ if __name__ == "__main__":
             obsID = frame['ObservationID']
             band = frame["Id"]
             key = f"{obsID}_{band}"
-            plot_name = key
+            plot_name = os.path.join(outdir, key)
             print(f"Reading:{frame['Id']}")
             print(f"Reading frame: {frame}")
             print(f"ObservationID: {obsID}")
