@@ -88,6 +88,10 @@ if __name__ == "__main__":
         print("==============================")
         idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
 
+        if len(idxcat1) == 0:
+            print("No matches")
+            continue
+
         # Get the mean centroid from the matched catalogs
         xx_sky = np.array([cat[scan1][idxcat1]['sky_centroid'].ra, cat[scan2][idxcat2]['sky_centroid'].ra])
         yy_sky = np.array([cat[scan1][idxcat1]['sky_centroid'].dec, cat[scan2][idxcat2]['sky_centroid'].dec])

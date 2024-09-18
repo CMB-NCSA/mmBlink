@@ -17,11 +17,18 @@ def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
     inputs:
        - c1: list (or list of lists) or 1D numpy array
        - c2: list (or list of lists) or 1D numpy array
+       - ix1: list of indicices of c1 that are matched in c2
+       - ix2: list of indicices of c2 that are matched in c1
 
     options:
+       - pad: pad lists that have only one element
+
     """
+
+    # Get elements that are not in c1 but not c2
     ixall1 = np.arange(len(c1))
     ixnew1 = np.delete(ixall1, ix1)
+    # Get elements that are not in c2 but not c1
     ixall2 = np.arange(len(c2))
     ixnew2 = np.delete(ixall2, ix2)
     nidx = len(ix1)
@@ -42,26 +49,25 @@ def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
             raise Exception(f"Cannot cast c2 as list {err=}, {type(err)=}")
 
     # We will store the new list here as "newlist"
-    # We want to augment c1 with new matches (ix2) from c2
     # Make sure that the newlist elements are lists:
-    # c1copy = copy.deepcopy(c1)
     newlist = [c if isinstance(c, list) else [c] for c in c1]
 
-    # Step 1, we stack c1, c2, by indexing (ix1, ix2)
+    # Step 1, we stack the elements of c1, c2, by indexing (ix1, ix2) and
+    # we want to augment c1 lists with new matches (ix2) from c2
     for k in range(nidx):
         i = ix1[k]
         j = ix2[k]
         newlist[i].append(c2[j])
 
-    # Step 2, we want to append c2 to existing c1
-    print(f"ixnew1: {ixnew1}")
+    # Step 2, we want to append new elememts in c2 to existing c1
+    # print(f"ixnew1: {ixnew1}")
     if pad:
         for k in ixnew1:
             c = newlist[k][0]
             newlist[k] = [c, c]
-            print("padding ixnew1:", k, newlist[k])
+            # print("padding ixnew1:", k, newlist[k])
 
-    print(f"ixnew2: {ixnew2}")
+    # print(f"ixnew2: {ixnew2}")
     for k in ixnew2:
         c = c2[k]
         if pad:
@@ -69,77 +75,6 @@ def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
             print("padding ixnew2:", len(newlist), newlist[-1])
         else:
             newlist.append([c])
-    return newlist
-
-
-def stack_cols_lists_old(c1, c2, asscalar=False, append=False):
-
-    """
-    Custom function to stack two one-dimensional columns
-
-    inputs:
-       - c1: list (or list of lists) or 1D numpy array
-       - c2: list (or list of lists) or 1D numpy array
-
-    options:
-    """
-
-    # Make sure that c1 and c2 are lists, if not we re-cast them as lists
-    if not isinstance(c1, list):
-        try:
-            c1 = list(c1)
-        except Exception as err:
-            raise Exception(f"Cannot cast c1 as list {err=}, {type(err)=}")
-    if not isinstance(c2, list):
-        try:
-            c2 = list(c2)
-        except Exception as err:
-            raise Exception(f"Cannot cast c2 as list {err=}, {type(err)=}")
-
-    # Case 1, we stack c1, c2
-    if append is False:
-        # Make sure that c1 and c2 have the same dimensions
-        if len(c1) != len(c2):
-            raise Exception(f"c1 and c2 have different dimensions: {len(c1)} vs {len(c2)}")
-        else:
-            # We will store the new list here as "newlist"
-            newlist = []
-            for i in range(len(c1)):
-                # if elements of c1 are list, we append instead of join
-                if isinstance(c1[i], list):
-                    c1[i].append(c2[i])
-                    x = c1[i]
-                # if not we join elements of c1 and c2
-                else:
-                    x = [c1[i], c2[i]]
-                newlist.append(x)
-
-    # Case 2, we want to append c2 to existing c1
-    else:
-        for c in c2:
-            print("c2:", c2)
-            print(type(c2))
-            if asscalar:
-                c1.append(c)
-            else:
-                c1.append(np.array([c]))
-        newlist = c1
-
-    print("#### ---- 1 ---- #####", type(newlist))
-    print("#### ---- 1 ---- #####", newlist)
-
-    #n = len(newlist)
-    #newarray = np.zeros(n, dtype=object)
-    #for k in range(n):
-    #newarray[k] = np.asarray(newlist[k])
-
-    #print(newlist)
-    #print(newarray)
-    #exit()
-
-    newlist = np.asarray(newlist, dtype=object)
-    print("#### ---- 2 ---- #####", type(newlist))
-    print("#### ---- 2 ---- #####", newlist)
     return newlist
 
 
