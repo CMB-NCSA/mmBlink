@@ -6,13 +6,71 @@ from scipy.stats import norm
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from astropy.stats import SigmaClip
 import photutils.background
-import copy
+import logging
+from logging.handlers import RotatingFileHandler
+import sys
+
+# Logger
+LOGGER = logging.getLogger(__name__)
+
+
+def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
+    """
+    Configure an existing logger
+    """
+    # Define formats
+    if log_format:
+        FORMAT = log_format
+    else:
+        FORMAT = '[%(asctime)s.%(msecs)03d][%(levelname)s][%(name)s][%(funcName)s] %(message)s'
+    if log_format_date:
+        FORMAT_DATE = log_format_date
+    else:
+        FORMAT_DATE = '%Y-%m-%d %H:%M:%S'
+    formatter = logging.Formatter(FORMAT, FORMAT_DATE)
+
+    # Need to set the root logging level as setting the level for each of the
+    # handlers won't be recognized unless the root level is set at the desired
+    # appropriate logging level. For example, if we set the root logger to
+    # INFO, and all handlers to DEBUG, we won't receive DEBUG messages on
+    # handlers.
+    logger.setLevel(level)
+
+    handlers = []
+    # Set the logfile handle if required
+    if logfile:
+        fh = RotatingFileHandler(logfile, maxBytes=2000000, backupCount=10)
+        fh.setFormatter(formatter)
+        fh.setLevel(level)
+        handlers.append(fh)
+        logger.addHandler(fh)
+
+    # Set the screen handle
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(formatter)
+    sh.setLevel(level)
+    handlers.append(sh)
+    logger.addHandler(sh)
+
+    return
+
+
+def create_logger(logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
+    """
+    Simple logger that uses configure_logger()
+    """
+    logger = logging.getLogger(__name__)
+    configure_logger(logger, logfile=logfile, level=level,
+                     log_format=log_format, log_format_date=log_format_date)
+    logging.basicConfig(handlers=logger.handlers, level=level)
+    logger.propagate = False
+    return logger
 
 
 def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
 
     """
-    Custom function to stack two one-dimensional columns
+    Custom function to stack two one-dimensional columns containing lists
 
     inputs:
        - c1: list (or list of lists) or 1D numpy array
@@ -48,8 +106,8 @@ def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
         except Exception as err:
             raise Exception(f"Cannot cast c2 as list {err=}, {type(err)=}")
 
-    # We will store the new list here as "newlist"
-    # Make sure that the newlist elements are lists:
+    # We will store the new list here as a list called "newlist"
+    # and make sure that the newlist elements are also lists:
     newlist = [c if isinstance(c, list) else [c] for c in c1]
 
     # Step 1, we stack the elements of c1, c2, by indexing (ix1, ix2) and
@@ -60,19 +118,18 @@ def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
         newlist[i].append(c2[j])
 
     # Step 2, we want to append new elememts in c2 to existing c1
-    # print(f"ixnew1: {ixnew1}")
+    LOGGER.debug(f"ixnew1: {ixnew1}")
     if pad:
         for k in ixnew1:
             c = newlist[k][0]
             newlist[k] = [c, c]
-            # print("padding ixnew1:", k, newlist[k])
 
-    # print(f"ixnew2: {ixnew2}")
+    LOGGER.debug(f"ixnew2: {ixnew2}")
     for k in ixnew2:
         c = c2[k]
         if pad:
             newlist.append([c, c])
-            print("padding ixnew2:", len(newlist), newlist[-1])
+            LOGGER.debug("padding ixnew2:", len(newlist), newlist[-1])
         else:
             newlist.append([c])
     return newlist
@@ -124,7 +181,7 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
         bkg = compute_rms2D(data, box=box, filter_size=filter_size, sigmaclip=sigmaclip)
         sigma2D = bkg.background
         threshold = nsigma_thresh * sigma2D
-        print("2D RMS computed")
+        LOGGER.debug("2D RMS computed")
     else:
         threshold = nsigma_thresh * sigma
 
@@ -156,7 +213,7 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
             plot_rms2D(bkg.background, ax4)
         if plot_name:
             plt.savefig(f"{plot_name}.pdf")
-            print(f"Saved: {plot_name}.pdf")
+            LOGGER.info(f"Saved: {plot_name}.pdf")
         else:
             plt.show()
 
