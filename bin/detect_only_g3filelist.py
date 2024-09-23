@@ -26,7 +26,7 @@ if __name__ == "__main__":
     logger.info("Logger Created")
 
     # plot = False
-    plot = True
+    plot = False
     nsigma_thresh = 3.5
     npixels = 20
     rms2D = True
@@ -71,15 +71,15 @@ if __name__ == "__main__":
 
     # Step 1 -- match catalogs for souces that show up more than once
     # Try to do the matching
+    plot = True
     max_sep = 20.0*u.arcsec
     stacked = None
     table_centroids = {}  # Table with centroids
     scans = list(cat.keys())
+    logger.info("++++++++ Starting Match Loop 1 ++++++++++")
     logger.info(f"scans: {scans}")
     for k in range(len(scans)-1):
         logger.info(scans[k])
-        if k == 0:
-            scan1 = scans[k]
 
         scan1 = scans[k]
         scan2 = scans[k+1]
@@ -88,6 +88,7 @@ if __name__ == "__main__":
         n1 = len(cat[scan1])
         n2 = len(cat[scan2])
         labelID = f"{scan1}_{scan2}"
+        logger.info("==============================")
         logger.info(f"# Doing {scan1} vs {scan2}")
         logger.info(f"# N in cat1: {n1} cat2: {n2}")
 
@@ -96,10 +97,9 @@ if __name__ == "__main__":
         # idx1_matched = sep < max_sep
         # print(cat[scan1][idx1_matched]['label', 'xcentroid', 'ycentroid',
         #                                'sky_centroid_dms', 'kron_flux', 'kron_fluxerr', 'max_value', 'area'])
-
         # Match method using search_around_sky
-        logger.info("==============================")
         idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
+        logger.info(f"# N matches: {len(idxcat1)} -- {len(idxcat2)}")
 
         if len(idxcat1) == 0:
             print("No matches")
@@ -116,6 +116,7 @@ if __name__ == "__main__":
         yc_pix = np.mean(yy_pix, axis=0)
         ncoords = [2]*len(xc_sky)
         label_col = [labelID]*len(xc_sky)
+        tblidx = np.arange(len(xc_sky)) + 1
 
         # Get the ids with max value
         max_value = np.array([cat[scan1][idxcat1]['max_value'], cat[scan2][idxcat2]['max_value']])
@@ -126,23 +127,14 @@ if __name__ == "__main__":
 
         # Create a Skycoord object
         coords = SkyCoord(xc_sky, yc_sky, frame=FK5, unit='deg')
-        table_centroids[labelID] = Table([label_col, coords, xc_pix, yc_pix, scan_max, max_value_max, ncoords],
-                                         names=('labelID', 'sky_centroid', 'xcentroid', 'ycentroid', 'scan_max',
-                                                'value_max', 'ncoords'))
+        table_centroids[labelID] = Table([tblidx, label_col, coords, xc_pix, yc_pix, scan_max, max_value_max, ncoords],
+                                         names=('index', 'labelID', 'sky_centroid', 'xcentroid', 'ycentroid',
+                                                'scan_max', 'value_max', 'ncoords'))
         table_centroids[labelID]['xcentroid'].info.format = '.2f'
         table_centroids[labelID]['ycentroid'].info.format = '.2f'
         table_centroids[labelID]['value_max'].info.format = '.6f'
         logger.info(f"centroids Done for: {labelID}")
-
-        if k == 0:
-            stacked_cat = table_centroids[labelID]['sky_centroid']
-            print(table_centroids[labelID])
-        else:
-            cat1 = stacked_cat
-            cat2 = table_centroids[labelID]['sky_centroid']
-            idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
-            print(table_centroids[labelID][idxcat1])
-
+        print(table_centroids[labelID])
         fig = plt.figure(figsize=(8, 8))
         x = table_centroids[labelID]['xcentroid']
         y = table_centroids[labelID]['ycentroid']
@@ -150,9 +142,10 @@ if __name__ == "__main__":
         plt.xlabel('x[pixels]')
         plt.ylabel('y[pixels]')
         plt.title(f"{scan1} - {scan2}")
-        # plt.show()
+        plt.show()
     logger.info("Done Part1")
     logger.info("+++++++++++++++++++++++++++++")
+    # exit()
 
     # Step 2 --- Find unique centroids
     stacked_centroids = None
@@ -235,6 +228,7 @@ if __name__ == "__main__":
         # Update centroids with averages
         # Create a Skycoord object
         coords = SkyCoord(xc_sky, yc_sky, frame=FK5, unit='deg')
+        stacked_centroids['index'] = np.arange(len(coords)) + 1
         stacked_centroids['sky_centroid'] = coords
         stacked_centroids['xcentroid'] = xc_pix
         stacked_centroids['ycentroid'] = yc_pix
