@@ -2,11 +2,6 @@
 from spt3g import core, maps
 import spt3g_detect.dtools as du
 import numpy as np
-from astropy import units as u
-from astropy.coordinates import SkyCoord
-from astropy.coordinates import FK5
-from astropy.table import Table, vstack
-import matplotlib.pyplot as plt
 import logging
 import sys
 import os
