@@ -67,6 +67,10 @@ def create_logger(logfile=None, level=logging.NOTSET, log_format=None, log_forma
     return logger
 
 
+def find_sources_in_catalogs(catalogs, separation=20):
+    return
+
+
 def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
 
     """

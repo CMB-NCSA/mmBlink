@@ -102,7 +102,7 @@ if __name__ == "__main__":
         logger.info(f"# N matches: {len(idxcat1)} -- {len(idxcat2)}")
 
         if len(idxcat1) == 0:
-            print("No matches")
+            logger.info(f"No matches for: {labelID}")
             continue
 
         # Get the mean centroid from the matched catalogs
