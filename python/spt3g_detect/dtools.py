@@ -110,14 +110,14 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
             yy_sky = stack_cols_lists(t1['sky_centroid'].dec.data, t2['sky_centroid'].dec.data, idxcat1, idxcat2)
             xx_pix = stack_cols_lists(t1['xcentroid'].data, t2['xcentroid'].data, idxcat1, idxcat2)
             yy_pix = stack_cols_lists(t1['ycentroid'].data, t2['ycentroid'].data, idxcat1, idxcat2)
-            value_max = stack_cols_lists(t1['value_max'].data, t2['value_max'].data, idxcat1, idxcat2, pad=True)
+            value_max = stack_cols_lists(t1['max_value'].data, t2['max_value'].data, idxcat1, idxcat2, pad=True)
             scan_max = stack_cols_lists(t1['scan_max'].data, t2['scan_max'].data, idxcat1, idxcat2, pad=True)
         else:
             xx_sky = stack_cols_lists(xx_sky, t2['sky_centroid'].ra.data, idxcat1, idxcat2)
             yy_sky = stack_cols_lists(yy_sky, t2['sky_centroid'].dec.data, idxcat1, idxcat2)
             xx_pix = stack_cols_lists(xx_pix, t2['xcentroid'].data, idxcat1, idxcat2)
             yy_pix = stack_cols_lists(yy_pix, t2['ycentroid'].data, idxcat1, idxcat2)
-            value_max = stack_cols_lists(value_max, t2['value_max'].data, idxcat1, idxcat2, pad=True)
+            value_max = stack_cols_lists(value_max, t2['max_value'].data, idxcat1, idxcat2, pad=True)
             scan_max = stack_cols_lists(scan_max, t2['scan_max'].data, idxcat1, idxcat2, pad=True)
 
         # Here we update the max_values and scan_max label
@@ -145,7 +145,7 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         xc_sky = mean_list_of_list(xx_sky)
         yc_sky = mean_list_of_list(yy_sky)
         # Update the number of coordinates points we have so far
-        ncoords = [len(x)+1 for x in xx_pix]
+        ncoords = [len(x) for x in xx_pix]
 
         # Before Update
         logger.debug("Before Update")
@@ -160,8 +160,8 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         stacked_centroids['ycentroid'] = yc_pix
         stacked_centroids['ncoords'] = ncoords
         stacked_centroids['scan_max'] = scan_max
-        stacked_centroids['value_max'] = value_max
-        stacked_centroids['value_max'].info.format = '.6f'
+        stacked_centroids['max_value'] = value_max
+        stacked_centroids['max_value'].info.format = '.5f'
         stacked_centroids['xcentroid'].info.format = '.2f'
         stacked_centroids['ycentroid'].info.format = '.2f'
         logger.debug(f"centroids Done for {label1}")
@@ -242,10 +242,10 @@ def find_repeating_sources(cat, separation=20, plot=False):
         coords = SkyCoord(xc_sky, yc_sky, frame=FK5, unit='deg')
         table_centroids[labelID] = Table([tblidx, label_col, coords, xc_pix, yc_pix, scan_max, max_value_max, ncoords],
                                          names=('index', 'labelID', 'sky_centroid', 'xcentroid', 'ycentroid',
-                                                'scan_max', 'value_max', 'ncoords'))
+                                                'scan_max', 'max_value', 'ncoords'))
         table_centroids[labelID]['xcentroid'].info.format = '.2f'
         table_centroids[labelID]['ycentroid'].info.format = '.2f'
-        table_centroids[labelID]['value_max'].info.format = '.6f'
+        table_centroids[labelID]['max_value'].info.format = '.5f'
         logger.info(f"centroids Done for: {labelID}")
         print(table_centroids[labelID])
         if plot:
@@ -324,7 +324,7 @@ def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
         c = c2[k]
         if pad:
             newlist.append([c, c])
-            LOGGER.debug("padding ixnew2:", len(newlist), newlist[-1])
+            LOGGER.debug(f"padding ixnew2: {len(newlist)} {newlist[-1]}")
         else:
             newlist.append([c])
     return newlist

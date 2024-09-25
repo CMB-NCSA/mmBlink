@@ -10,6 +10,7 @@ import os
 if __name__ == "__main__":
 
     # Create logger
+    loglevel = 'DEBUG'
     loglevel = 'INFO'
     log_format = '[%(asctime)s.%(msecs)03d][%(levelname)s][%(name)s][%(funcName)s] %(message)s'
     log_format_date = '%Y-%m-%d %H:%M:%S'
@@ -22,7 +23,7 @@ if __name__ == "__main__":
 
     # plot = False
     plot = False
-    nsigma_thresh = 3.5
+    nsigma_thresh = 5
     npixels = 20
     rms2D = True
     g3files = sys.argv[1:]
@@ -63,11 +64,16 @@ if __name__ == "__main__":
                                                            plot_title=band)
 
             cat[key].add_column(np.array([key]*len(cat[key])), name='scan', index=0)
+            cat[key].add_column(np.array([key]*len(cat[key])), name='scan_max', index=0)
 
-    # Step 1 -- match catalogs for souces that show up more than once
     # Try to do the matching
     max_sep = 20.0
     plot = True
+
+    # Example 1, find all positions
+    # stacked_centroids = du.find_unique_centroids(cat, separation=max_sep, plot=plot)
+
+    # Example 2, find repeating soueces
     table_centroids = du.find_repeating_sources(cat, separation=max_sep, plot=plot)
     stacked_centroids = du.find_unique_centroids(table_centroids, separation=max_sep, plot=plot)
     print(stacked_centroids)
