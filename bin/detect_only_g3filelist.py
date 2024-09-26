@@ -67,7 +67,7 @@ if __name__ == "__main__":
             cat[key].add_column(np.array([key]*len(cat[key])), name='scan_max', index=0)
 
     # Try to do the matching
-    max_sep = 20.0
+    max_sep = 35.0
     plot = True
 
     # Example 1, find all positions

@@ -190,7 +190,7 @@ def find_repeating_sources(cat, separation=20, plot=False):
     table_centroids = {}  # Table with centroids
     scans = list(cat.keys())
     logger = LOGGER
-    logger.info("++++++++ Starting Match Loop ++++++++++")
+    logger.info("++++++++ Starting Match Loop for repeating source ++++++++++")
     logger.info(f"scans: {scans}")
     for k in range(len(scans)-1):
         logger.info(scans[k])
@@ -249,15 +249,48 @@ def find_repeating_sources(cat, separation=20, plot=False):
         logger.info(f"centroids Done for: {labelID}")
         print(table_centroids[labelID])
         if plot:
-            plt.figure(figsize=(8, 8))
+            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6))
+
+            # Set limits for centroids
+            xmin = min(cat[scan1]['xcentroid'].min(), cat[scan2]['xcentroid'].min())
+            ymin = min(cat[scan1]['ycentroid'].min(), cat[scan2]['ycentroid'].min())
+            xmax = max(cat[scan1]['xcentroid'].max(), cat[scan2]['xcentroid'].max())
+            ymax = max(cat[scan1]['ycentroid'].max(), cat[scan2]['ycentroid'].max())
+            dx = 0.2*(xmax-xmin)
+            dy = 0.2*(ymax-ymin)
+            xmin = xmin-dx
+            xmax = xmax+dx
+            ymin = ymin-dy
+            ymax = ymax+dy
+
+            x = cat[scan1]['xcentroid']
+            y = cat[scan1]['ycentroid']
+            ax1.scatter(x, y, marker='o', c='red')
+            ax1.set_xlabel('x[pixels]')
+            ax1.set_ylabel('y[pixels]')
+            ax1.set_xlim(xmin, xmax)
+            ax1.set_ylim(ymin, ymax)
+            ax1.set_title(f"{scan1}")
+
+            x = cat[scan2]['xcentroid']
+            y = cat[scan2]['ycentroid']
+            ax2.scatter(x, y, marker='o', c='blue')
+            ax2.set_xlabel('x[pixels]')
+            ax2.set_ylabel('y[pixels]')
+            ax2.set_xlim(xmin, xmax)
+            ax2.set_ylim(ymin, ymax)
+            ax2.set_title(f"{scan2}")
+
             x = table_centroids[labelID]['xcentroid']
             y = table_centroids[labelID]['ycentroid']
-            plt.scatter(x, y, marker='o', c='k')
-            plt.xlabel('x[pixels]')
-            plt.ylabel('y[pixels]')
-            plt.title(f"{scan1} - {scan2}")
+            ax3.scatter(x, y, marker='o', c='k')
+            ax3.set_xlabel('x[pixels]')
+            ax3.set_ylabel('y[pixels]')
+            ax3.set_xlim(xmin, xmax)
+            ax3.set_ylim(ymin, ymax)
+            ax3.set_title(f"{scan1} - {scan2}")
             plt.show()
-    logger.info("Done Matching Loop")
+    logger.info("Done Matching Loop for repeating sources")
     logger.info("+++++++++++++++++++++++++++++")
     return table_centroids
 
