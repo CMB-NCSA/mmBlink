@@ -62,9 +62,12 @@ if __name__ == "__main__":
                                                            npixels=npixels, wcs=frame['T'].wcs,
                                                            rms2D=rms2D, plot=plot, plot_name=plot_name,
                                                            plot_title=band)
-
-            cat[key].add_column(np.array([key]*len(cat[key])), name='scan', index=0)
-            cat[key].add_column(np.array([key]*len(cat[key])), name='scan_max', index=0)
+            if cat[key] is None:
+                del cat[key]
+                del segm[key]
+            else:
+                cat[key].add_column(np.array([key]*len(cat[key])), name='scan', index=0)
+                cat[key].add_column(np.array([key]*len(cat[key])), name='scan_max', index=0)
 
     # Try to do the matching
     max_sep = 35.0

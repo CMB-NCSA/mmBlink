@@ -416,6 +416,10 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
     # Perform segmentation and deblending
     finder = SourceFinder(npixels=npixels, nlevels=32, contrast=0.001, progress_bar=False)
     segm = finder(data, threshold)
+    # We stop if we don't find source
+    if segm is None:
+        LOGGER.info("No sources found, returning Nones")
+        return None, None
     cat = SourceCatalog(data, segm, error=wgt, wcs=wcs)
 
     # Nicer formatting
@@ -429,7 +433,6 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
     # print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
     #          'kron_flux', 'kron_fluxerr', 'max_value', 'area'])
     if plot:
-
         if rms2D:
             fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(24, 6))
         else:
