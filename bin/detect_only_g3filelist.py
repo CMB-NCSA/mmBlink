@@ -5,9 +5,64 @@ import numpy as np
 import logging
 import sys
 import os
+import argparse
+import time
+
+
+def cmdline():
+
+    parser = argparse.ArgumentParser(description="spt3g transient detection")
+    parser.add_argument("files", nargs='+',
+                        help="Filename(s) to ingest")
+    parser.add_argument("--outdir", type=str, action='store', default=None,
+                        required=True, help="Location for output files")
+    parser.add_argument("--clobber", action='store_true', default=False,
+                        help="Clobber output files")
+
+    # Logging options (loglevel/log_format/log_format_date)
+    default_log_format = '[%(asctime)s.%(msecs)03d][%(levelname)s][%(name)s][%(funcName)s] %(message)s'
+    default_log_format_date = '%Y-%m-%d %H:%M:%S'
+    parser.add_argument("--loglevel", action="store", default='INFO', type=str.upper,
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                        help="Logging Level [DEBUG/INFO/WARNING/ERROR/CRITICAL]")
+    parser.add_argument("--log_format", action="store", type=str, default=default_log_format,
+                        help="Format for logging")
+    parser.add_argument("--log_format_date", action="store", type=str, default=default_log_format_date,
+                        help="Format for date section of logging")
+
+    # Detection options
+    parser.add_argument("--rms2D", action='store_true', default=False,
+                        help="Perform 2D map of the rms using photutils Background2D StdBackgroundRMS")
+    parser.add_argument("--npixels", action='store', type=int, default=20,
+                        help="Compress output files with astropy.io.fits.CompImageHDU")
+    parser.add_argument("--nsigma_thresh", action='store', type=float, default=5.0,
+                        help="Number of sigmas use to compute the detection threshold")
+    parser.add_argument("--max_sep", action='store', type=float, default=35.0,
+                        help="Maximum angular separation to match sources in arcsec")
+    parser.add_argument("--plot", action='store_true', default=False,
+                        help="Plot detection diagnostic?")
+
+    # Use multiprocessing
+    parser.add_argument("--np", action="store", default=1, type=int,
+                        help="Run using multi-process, 0=automatic, 1=single-process [default]")
+    parser.add_argument("--ntheads", action="store", default=1, type=int,
+                        help="The number of threads used by numexpr 0=automatic, 1=single [default]")
+
+    args = parser.parse_args()
+    return args
 
 
 if __name__ == "__main__":
+
+    # Keep time
+    t0 = time.time()
+    args = cmdline()
+    d3w = du.detect_3gworker(**args.__dict__)
+
+    for g3filename in d3w.config.files:
+        d3w.run_g3file(g3filename)
+
+    exit()
 
     # Create logger
     loglevel = 'DEBUG'
@@ -22,7 +77,7 @@ if __name__ == "__main__":
     logger.info("Logger Created")
 
     # plot = False
-    plot = False
+    plot = True
     nsigma_thresh = 5
     npixels = 20
     rms2D = True

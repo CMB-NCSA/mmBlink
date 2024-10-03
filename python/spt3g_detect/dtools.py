@@ -13,9 +13,103 @@ import photutils.background
 import logging
 from logging.handlers import RotatingFileHandler
 import sys
+import os
+import multiprocessing
+import types
+import magic
+import errno
+import spt3g_detect
+from spt3g import core, maps
 
 # Logger
 LOGGER = logging.getLogger(__name__)
+
+
+class detect_3gworker:
+
+    """ A Class to run and manage Transient detections on SPT files/frames"""
+
+    def __init__(self, **keys):
+
+        # Load the configurarion
+        self.config = types.SimpleNamespace(**keys)
+
+        # Start Logging
+        self.setup_logging()
+
+        # Prepare things
+        self.prepare()
+
+        # Check input files vs file list
+        self.check_input_files()
+
+    def prepare(self):
+        """Intit some functions"""
+        # Get the number of processors to use
+        self.NP = get_NP(self.config.np)
+        create_dir(self.config.outdir)
+        self.flux = {}
+        self.flux_wgt = {}
+
+    def setup_logging(self):
+        """ Simple logger that uses configure_logger() """
+
+        # Create the logger
+        create_logger(level=self.config.loglevel,
+                      log_format=self.config.log_format,
+                      log_format_date=self.config.log_format_date)
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(f"Logging Started at level:{self.config.loglevel}")
+        self.logger.info(f"Running spt3g_ingest version: {spt3g_detect.__version__}")
+
+    def check_input_files(self):
+        " Check if the inputs are a list or a file with a list"
+        # The number of files to process
+        self.nfiles = len(self.config.files)
+
+        t = magic.Magic(mime=True)
+        if self.nfiles == 1 and t.from_file(self.config.files[0]) == 'text/plain':
+            self.logger.info(f"{self.config.files[0]} is a list of files")
+            # Now read them in
+            with open(self.config.files[0], 'r') as f:
+                lines = f.read().splitlines()
+            self.logger.info(f"Read: {len(lines)} input files")
+            self.config.files = lines
+            self.nfiles = len(lines)
+        else:
+            self.logger.info(f"Detected list of [{self.nfiles}] files")
+
+    def run_g3file(self, g3filename):
+
+        """
+        Run a g3filename
+        """
+        print(f"Opening file: {g3filename}")
+        for frame in core.G3File(g3filename):
+            # only read in the map
+            if frame.type != core.G3FrameType.Map:
+                continue
+            obsID = frame['ObservationID']
+            band = frame["Id"]
+            key = f"{obsID}_{band}"
+            plot_name = os.path.join(self.config.outdir, key)
+            self.logger.info(f"Reading:{frame['Id']}")
+            self.logger.info(f"Reading frame: {frame}")
+            self.logger.info(f"ObservationID: {obsID}")
+            self.logger.info(f"Removing weights: {frame['Id']}")
+            maps.RemoveWeights(frame, zero_nans=True)
+            self.flux[key] = np.asarray(frame['T'])/core.G3Units.mJy
+            self.flux_wgt[key] = np.asarray(frame['Wunpol'].TT)*core.G3Units.mJy
+            self.logger.info(f"Min/Max {self.flux[key].min()} {self.flux[key].max()}")
+            self.logger.info(f"Min/Max {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
+            data = self.flux[key]
+            wgt = 1/self.flux_wgt[key]
+            segm, cat = detect_with_photutils(data, wgt=wgt,
+                                              nsigma_thresh=self.config.nsigma_thresh,
+                                              npixels=self.config.npixels, wcs=frame['T'].wcs,
+                                              rms2D=self.config.rms2D, plot=self.config.plot,
+                                              plot_name=plot_name, plot_title=band)
+            return segm, cat
 
 
 def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
@@ -69,6 +163,37 @@ def create_logger(logfile=None, level=logging.NOTSET, log_format=None, log_forma
     logging.basicConfig(handlers=logger.handlers, level=level)
     logger.propagate = False
     return logger
+
+
+def get_NP(MP):
+    """ Get the number of processors in the machine
+    if MP == 0, use all available processor
+    """
+    # For it to be a integer
+    MP = int(MP)
+    if MP == 0:
+        NP = int(multiprocessing.cpu_count())
+    elif isinstance(MP, int):
+        NP = MP
+    else:
+        raise ValueError('MP is wrong type: %s, integer type' % MP)
+    return NP
+
+
+def create_dir(dirname):
+    "Safely attempt to create a folder"
+    if not os.path.isdir(dirname):
+        LOGGER.info(f"Creating directory: {dirname}")
+        try:
+            os.makedirs(dirname, mode=0o755, exist_ok=True)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                LOGGER.warning(f"Problem creating {dirname} -- proceeding with trepidation")
+
+
+def chunker(seq, size):
+    "Chunk a sequence in chunks of a given size"
+    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 
 def find_unique_centroids(table_centroids, separation=20, plot=False):
@@ -400,6 +525,15 @@ def compute_rms2D(data, box=(200, 200), filter_size=(3, 3), sigmaclip=None):
 def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
                           rms2D=False, box=(200, 200), filter_size=(3, 3), sigmaclip=None,
                           wcs=None, plot=False, plot_title=None, plot_name=None):
+
+    """
+    Use photutils SourceFinder and SourceCatalog to create a catalog of sources
+
+    inputs:
+       - npixels: The minimum number of connected pixels,
+       - nsigma_thresh: Number of sigmas use to compute the detection threshold
+
+    """
 
     # Get the mean and std of the distribution
     mean, sigma = norm.fit(data.flatten())
