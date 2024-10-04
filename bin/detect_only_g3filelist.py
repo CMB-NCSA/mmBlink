@@ -1,10 +1,5 @@
 #!/usr/bin/env python
-from spt3g import core, maps
 import spt3g_detect.dtools as du
-import numpy as np
-import logging
-import sys
-import os
 import argparse
 import time
 
