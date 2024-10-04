@@ -14,10 +14,11 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 import os
-import multiprocessing
+import multiprocessing as mp
 import types
 import magic
 import errno
+import time
 import spt3g_detect
 from spt3g import core, maps
 
@@ -48,8 +49,12 @@ class detect_3gworker:
         # Get the number of processors to use
         self.NP = get_NP(self.config.np)
         create_dir(self.config.outdir)
+
+        # Dictionaries to store the data
         self.flux = {}
         self.flux_wgt = {}
+        self.cat = {}
+        self.segm = {}
 
     def setup_logging(self):
         """ Simple logger that uses configure_logger() """
@@ -79,37 +84,108 @@ class detect_3gworker:
         else:
             self.logger.info(f"Detected list of [{self.nfiles}] files")
 
-    def run_g3file(self, g3filename):
+    def detect_with_photutils_frame(self, frame):
+        obsID = frame['ObservationID']
+        band = frame["Id"]
+        key = f"{obsID}_{band}"
+        plot_name = os.path.join(self.config.outdir, key)
+        self.logger.info(f"Reading frame[Id]: {frame['Id']}")
+        self.logger.debug(f"Reading frame: {frame}")
+        self.logger.debug(f"ObservationID: {obsID}")
+        self.logger.debug(f"Removing weights: {frame['Id']}")
+        maps.RemoveWeights(frame, zero_nans=True)
+        self.flux[key] = np.asarray(frame['T'])/core.G3Units.mJy
+        self.flux_wgt[key] = np.asarray(frame['Wunpol'].TT)*core.G3Units.mJy
+        self.logger.debug(f"Min/Max {self.flux[key].min()} {self.flux[key].max()}")
+        self.logger.debug(f"Min/Max {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
+        data = self.flux[key]
+        wgt = 1/self.flux_wgt[key]
+        self.segm[key], self.cat[key] = detect_with_photutils(data, wgt=wgt,
+                                                              nsigma_thresh=self.config.nsigma_thresh,
+                                                              npixels=self.config.npixels, wcs=frame['T'].wcs,
+                                                              rms2D=self.config.rms2D, plot=self.config.plot,
+                                                              plot_name=plot_name, plot_title=band)
+        if self.cat[key] is None:
+            del self.cat[key]
+            del self.segm[key]
+        else:
+            self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='scan', index=0)
+            self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='scan_max', index=0)
 
+    def run_detection_g3file(self, g3filename, k):
         """
-        Run a g3filename
+        Run the task(s) for a g3file
         """
-        print(f"Opening file: {g3filename}")
+        t0 = time.time()
+        # We need to setup logging again for MP
+        if self.NP > 1:
+            self.setup_logging()
+        self.logger.info(f"Opening file: {g3filename}")
+        self.logger.info(f"Doing: {k}/{self.nfiles} files")
         for frame in core.G3File(g3filename):
             # only read in the map
             if frame.type != core.G3FrameType.Map:
                 continue
-            obsID = frame['ObservationID']
-            band = frame["Id"]
-            key = f"{obsID}_{band}"
-            plot_name = os.path.join(self.config.outdir, key)
-            self.logger.info(f"Reading:{frame['Id']}")
-            self.logger.info(f"Reading frame: {frame}")
-            self.logger.info(f"ObservationID: {obsID}")
-            self.logger.info(f"Removing weights: {frame['Id']}")
-            maps.RemoveWeights(frame, zero_nans=True)
-            self.flux[key] = np.asarray(frame['T'])/core.G3Units.mJy
-            self.flux_wgt[key] = np.asarray(frame['Wunpol'].TT)*core.G3Units.mJy
-            self.logger.info(f"Min/Max {self.flux[key].min()} {self.flux[key].max()}")
-            self.logger.info(f"Min/Max {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
-            data = self.flux[key]
-            wgt = 1/self.flux_wgt[key]
-            segm, cat = detect_with_photutils(data, wgt=wgt,
-                                              nsigma_thresh=self.config.nsigma_thresh,
-                                              npixels=self.config.npixels, wcs=frame['T'].wcs,
-                                              rms2D=self.config.rms2D, plot=self.config.plot,
-                                              plot_name=plot_name, plot_title=band)
-            return segm, cat
+            self.detect_with_photutils_frame(frame)
+
+        self.logger.info(f"Completed: {k}/{self.nfiles} files")
+        self.logger.info(f"Total time: {elapsed_time(t0)} for: {g3filename}")
+
+    def run_detection_g3files(self):
+        " Run all g3files"
+        if self.NP > 1:
+            self.logger.info("Running detection jobs with multiprocessing")
+            self.run_detection_async()
+            # self.run_detection_mp()
+        else:
+            self.logger.info("Running detection jobs serialy")
+            self.run_detection_serial()
+
+    def run_detection_mp(self):
+        " Run g3files using multiprocessing.Process in chunks of NP"
+        k = 1
+        jobs = []
+        self.logger.info(f"Will use {self.NP} processors")
+        # Loop one to defined the jobs
+        for g3file in self.config.files:
+            self.logger.info(f"Starting mp.Process for {g3file}")
+            fargs = (g3file, k)
+            p = mp.Process(target=self.run_detection_g3file, args=fargs)
+            jobs.append(p)
+            k += 1
+
+        # Loop over the process in chunks of size NP
+        for job_chunk in chunker(jobs, self.NP):
+            for job in job_chunk:
+                self.logger.info(f"Starting job: {job.name}")
+                job.start()
+            for job in job_chunk:
+                self.logger.info(f"Joining job: {job.name}")
+                job.join()
+
+    def run_detection_async(self):
+        # It might have memory issues with spt3g pipe()
+        " Run g3files using multiprocessing.apply_async"
+
+        with mp.get_context('spawn').Pool() as p:
+            p = mp.Pool(processes=self.NP, maxtasksperchild=1)
+            self.logger.info(f"Will use {self.NP} processors")
+            k = 1
+            for g3file in self.config.files:
+                fargs = (g3file, k)
+                kw = {}
+                self.logger.info(f"Starting apply_async.Process for {g3file}")
+                p.apply_async(self.run_detection_g3file, fargs, kw)
+                k += 1
+            p.close()
+            p.join()
+
+    def run_detection_serial(self):
+        " Run all g3files serialy "
+        k = 1
+        for g3file in self.config.files:
+            self.run_detection_g3file(g3file, k)
+            k += 1
 
 
 def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
@@ -165,6 +241,27 @@ def create_logger(logfile=None, level=logging.NOTSET, log_format=None, log_forma
     return logger
 
 
+def elapsed_time(t1, verb=False):
+    """
+    Returns the time between t1 and the current time now
+    I can can also print the formatted elapsed time.
+    ----------
+    t1: float
+        The initial time (in seconds)
+    verb: bool, optional
+        Optionally print the formatted elapsed time
+    returns
+    -------
+    stime: float
+        The elapsed time in seconds since t1
+    """
+    t2 = time.time()
+    stime = "%dm %2.2fs" % (int((t2-t1)/60.), (t2-t1) - 60*int((t2-t1)/60.))
+    if verb:
+        print("Elapsed time: {}".format(stime))
+    return stime
+
+
 def get_NP(MP):
     """ Get the number of processors in the machine
     if MP == 0, use all available processor
@@ -172,7 +269,7 @@ def get_NP(MP):
     # For it to be a integer
     MP = int(MP)
     if MP == 0:
-        NP = int(multiprocessing.cpu_count())
+        NP = int(mp.cpu_count())
     elif isinstance(MP, int):
         NP = MP
     else:
