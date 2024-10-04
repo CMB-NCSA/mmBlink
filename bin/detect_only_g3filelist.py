@@ -60,14 +60,13 @@ if __name__ == "__main__":
     d3w = du.detect_3gworker(**args.__dict__)
     t0 = time.time()
     d3w.run_detection_g3files()
+    # d3w.run_detection_serial()
+    # d3w.run_detection_mp()
     print(f"Total time: {du.elapsed_time(t0)} for [run_detection_g3files]")
     # Example 2, find repeating soueces
     table_centroids = du.find_repeating_sources(d3w.cat, separation=args.max_sep, plot=args.plot)
     stacked_centroids = du.find_unique_centroids(table_centroids, separation=args.max_sep, plot=args.plot)
     print(stacked_centroids)
-
-    #d3w.run_detection_serial()
-    #d3w.run_detection_mp()
     exit()
 
     # Create logger
