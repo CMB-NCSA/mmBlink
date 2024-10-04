@@ -50,11 +50,19 @@ class detect_3gworker:
         self.NP = get_NP(self.config.np)
         create_dir(self.config.outdir)
 
-        # Dictionaries to store the data
-        self.flux = {}
-        self.flux_wgt = {}
-        self.cat = {}
-        self.segm = {}
+        # Dictionaries to store the data, we need manager dictionaries when
+        # using multiprocessing
+        if self.NP > 1:
+            manager = mp.Manager()
+            self.cat = manager.dict()
+            self.segm = manager.dict()
+            self.flux = manager.dict()
+            self.flux_wgt = manager.dict()
+        else:
+            self.flux = {}
+            self.flux_wgt = {}
+            self.cat = {}
+            self.segm = {}
 
     def setup_logging(self):
         """ Simple logger that uses configure_logger() """
@@ -88,7 +96,7 @@ class detect_3gworker:
         obsID = frame['ObservationID']
         band = frame["Id"]
         key = f"{obsID}_{band}"
-        plot_name = os.path.join(self.config.outdir, key)
+        plot_name = os.path.join(self.config.outdir, f"{key}_cat")
         self.logger.info(f"Reading frame[Id]: {frame['Id']}")
         self.logger.debug(f"Reading frame: {frame}")
         self.logger.debug(f"ObservationID: {obsID}")
@@ -105,16 +113,27 @@ class detect_3gworker:
                                                               npixels=self.config.npixels, wcs=frame['T'].wcs,
                                                               rms2D=self.config.rms2D, plot=self.config.plot,
                                                               plot_name=plot_name, plot_title=band)
+        # if no detections (i.e. None) we remove dictionaries
         if self.cat[key] is None:
+            self.logger.info(f"Removing dictionary {key}")
             del self.cat[key]
             del self.segm[key]
-        else:
+
+    def add_scan_column_to_cat(self):
+        """
+        Add scan and scan_max columns to catalogs
+        This needs to be done outside the MP call,
+        otherwise the dictionaries are not updated as excepeted
+        """
+        for key in self.cat.keys():
+            self.logger.info(f"Adding scan column for {key}")
             self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='scan', index=0)
             self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='scan_max', index=0)
 
     def run_detection_g3file(self, g3filename, k):
         """
-        Run the task(s) for a g3file
+        Run the task(s) for one g3file.
+        The outputs are stored in self.cat and self.segm
         """
         t0 = time.time()
         # We need to setup logging again for MP
@@ -135,11 +154,14 @@ class detect_3gworker:
         " Run all g3files"
         if self.NP > 1:
             self.logger.info("Running detection jobs with multiprocessing")
-            self.run_detection_async()
-            # self.run_detection_mp()
+            # self.run_detection_async()
+            self.run_detection_mp()
         else:
             self.logger.info("Running detection jobs serialy")
             self.run_detection_serial()
+
+        # Finally we add the scan and scan_max columns
+        self.add_scan_column_to_cat()
 
     def run_detection_mp(self):
         " Run g3files using multiprocessing.Process in chunks of NP"
@@ -163,10 +185,16 @@ class detect_3gworker:
                 self.logger.info(f"Joining job: {job.name}")
                 job.join()
 
+        # Update with returned dictionary, we need to make them real
+        # dictionaries, instead DictProxy objects returned from multiprocessing
+        self.logger.info("Updating returned dictionaries")
+        self.cat = self.cat.copy()
+        self.segm = self.segm.copy()
+        p.terminate()
+
     def run_detection_async(self):
         # It might have memory issues with spt3g pipe()
         " Run g3files using multiprocessing.apply_async"
-
         with mp.get_context('spawn').Pool() as p:
             p = mp.Pool(processes=self.NP, maxtasksperchild=1)
             self.logger.info(f"Will use {self.NP} processors")
@@ -179,6 +207,13 @@ class detect_3gworker:
                 k += 1
             p.close()
             p.join()
+
+        # Update with returned dictionary, we need to make them real
+        # dictionaries, instead DictProxy objects returned from multiprocessing
+        self.logger.info("Updating returned dictionaries")
+        self.cat = self.cat.copy()
+        self.segm = self.segm.copy()
+        p.terminate()
 
     def run_detection_serial(self):
         " Run all g3files serialy "
@@ -394,7 +429,7 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
     return stacked_centroids
 
 
-def find_repeating_sources(cat, separation=20, plot=False):
+def find_repeating_sources(cat, separation=20, plot=False, outdir=None):
     """
     Match sources in a list of catalogs that show up in at least two
     consecutive catalogs
@@ -471,6 +506,7 @@ def find_repeating_sources(cat, separation=20, plot=False):
         logger.info(f"centroids Done for: {labelID}")
         print(table_centroids[labelID])
         if plot:
+            plot_name = os.path.join(outdir, f"{labelID}_match")
             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6))
 
             # Set limits for centroids
@@ -511,7 +547,9 @@ def find_repeating_sources(cat, separation=20, plot=False):
             ax3.set_xlim(xmin, xmax)
             ax3.set_ylim(ymin, ymax)
             ax3.set_title(f"{scan1} - {scan2}")
-            plt.show()
+            plt.savefig(f"{plot_name}.pdf")
+            plt.close()
+
     logger.info("Done Matching Loop for repeating sources")
     logger.info("+++++++++++++++++++++++++++++")
     return table_centroids
@@ -678,6 +716,7 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
             LOGGER.info(f"Saved: {plot_name}.pdf")
         else:
             plt.show()
+        plt.close()
 
     return segm, tbl
 
