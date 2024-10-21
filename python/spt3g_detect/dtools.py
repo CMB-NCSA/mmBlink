@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.ma as ma
 import matplotlib.pyplot as plt
 from photutils.segmentation import SourceFinder
 from photutils.segmentation import SourceCatalog
@@ -106,12 +107,23 @@ class detect_3gworker:
         self.flux_wgt[key] = np.asarray(frame['Wunpol'].TT)*core.G3Units.mJy
         self.logger.debug(f"Min/Max {self.flux[key].min()} {self.flux[key].max()}")
         self.logger.debug(f"Min/Max {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
+        # Now we exctract the mask
+        try:
+            # Zero is no data, and Ones is data
+            g3_mask = frame["T"].to_mask()
+            g3_mask_map = g3_mask.to_map()
+            flux_mask = np.asarray(g3_mask_map)
+            flux_mask = np.where(flux_mask == 1, int(1), 0)
+        except Exception as e:
+            self.logger.warning(e.message)
+            flux_mask = None
         data = self.flux[key]
         wgt = 1/self.flux_wgt[key]
-        self.segm[key], self.cat[key] = detect_with_photutils(data, wgt=wgt,
+        self.segm[key], self.cat[key] = detect_with_photutils(data, wgt=wgt, mask=flux_mask,
                                                               nsigma_thresh=self.config.nsigma_thresh,
                                                               npixels=self.config.npixels, wcs=frame['T'].wcs,
-                                                              rms2D=self.config.rms2D, plot=self.config.plot,
+                                                              rms2D=self.config.rms2D, box=self.config.rms2D_box,
+                                                              plot=self.config.plot,
                                                               plot_name=plot_name, plot_title=band)
         # if no detections (i.e. None) we remove dictionaries
         if self.cat[key] is None:
@@ -447,7 +459,7 @@ def find_repeating_sources(cat, separation=20, plot=False, outdir=None):
     table_centroids = {}  # Table with centroids
     scans = list(cat.keys())
     logger = LOGGER
-    logger.info("++++++++ Starting Match Loop for repeating source ++++++++++")
+    logger.info("++++++++ Starting Match Loop for repeating sources ++++++++++")
     logger.info(f"scans: {scans}")
     for k in range(len(scans)-1):
         logger.info(scans[k])
@@ -637,7 +649,7 @@ def max_list_of_list(list, np_array=True):
     return max_val
 
 
-def compute_rms2D(data, box=(200, 200), filter_size=(3, 3), sigmaclip=None):
+def compute_rms2D(data, mask=None, box=200, filter_size=(3, 3), sigmaclip=None):
 
     """
     Compute a 2D map of the rms using photutils.Background2D and
@@ -652,12 +664,12 @@ def compute_rms2D(data, box=(200, 200), filter_size=(3, 3), sigmaclip=None):
 
     # Set up the background estimator
     bkg_estimator = photutils.background.StdBackgroundRMS(sigma_clip)
-    bkg = photutils.background.Background2D(data, box, filter_size=filter_size, edge_method='pad',
+    bkg = photutils.background.Background2D(data, box, mask=mask, filter_size=filter_size, edge_method='pad',
                                             sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
     return bkg
 
 
-def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
+def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=20,
                           rms2D=False, box=(200, 200), filter_size=(3, 3), sigmaclip=None,
                           wcs=None, plot=False, plot_title=None, plot_name=None):
 
@@ -670,12 +682,23 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
 
     """
 
+    if mask is not None:
+        # Select only the indices with flux
+        idx = np.where(mask == 1)
+        # Create a bool mask for the maked array, False is NOT masked
+        LOGGER.info("Selecting indices for boolean mask")
+        gmask = np.where(mask == 1, False, True)
+        # Make the data array a masked array (better plots)
+        data = ma.masked_array(data, gmask)
+    else:
+        idx = np.where(mask)
+        gmask = None
     # Get the mean and std of the distribution
-    mean, sigma = norm.fit(data.flatten())
+    mean, sigma = norm.fit(data[idx].flatten())
 
     # Define the threshold, array in the case of rms2D
     if rms2D:
-        bkg = compute_rms2D(data, box=box, filter_size=filter_size, sigmaclip=sigmaclip)
+        bkg = compute_rms2D(data, mask=gmask, box=box, filter_size=filter_size, sigmaclip=sigmaclip)
         sigma2D = bkg.background
         threshold = nsigma_thresh * sigma2D
         LOGGER.debug("2D RMS computed")
@@ -707,10 +730,11 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
         else:
             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6))
         plot_detection(ax1, data, cat, sigma, nsigma_plot=5, plot_title=plot_title)
-        plot_segmentation(ax2, segm, cat)
-        plot_distribution(ax3, data, mean, sigma, nsigma=nsigma_thresh)
+        plot_segmentation(ax2, segm, cat, gmask=gmask)
+        plot_distribution(ax3, data[idx], mean, sigma, nsigma=nsigma_thresh)
         if rms2D:
-            plot_rms2D(bkg.background, ax4)
+            # Make the background image a masked arrays
+            plot_rms2D(bkg.background, ax4, gmask=gmask)
         if plot_name:
             plt.savefig(f"{plot_name}.pdf")
             LOGGER.info(f"Saved: {plot_name}.pdf")
@@ -721,13 +745,12 @@ def detect_with_photutils(data, wgt=None, nsigma_thresh=3.5, npixels=20,
     return segm, tbl
 
 
-def plot_rms2D(bkg, ax, nsigma_plot=5):
+def plot_rms2D(bkg, ax, gmask=None, nsigma_plot=3.5):
 
-    # Get the stats for the 2D rms
-    bkg_mean, bkg_sigma = norm.fit(bkg.flatten())
-    vmin = bkg_mean - nsigma_plot*bkg_sigma
-    vmax = bkg_mean + nsigma_plot*bkg_sigma
-    im = ax.imshow(bkg, origin='lower', cmap='Greys_r', vmin=vmin, vmax=vmax)
+    # Plot a masked array if gmask is passed
+    if gmask is not None:
+        bkg = ma.masked_array(bkg, gmask)
+    im = ax.imshow(bkg, origin='lower', cmap='Greys')
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
     plt.colorbar(im, cax=cax)
@@ -739,7 +762,7 @@ def plot_detection(ax1, data, cat, sigma, nsigma_plot=5, plot_title=None):
     Function to plot the 2D data array and catalog produced by photutils
     """
     vlim = nsigma_plot*sigma
-    im1 = ax1.imshow(data, origin='lower', cmap='Greys_r', vmin=-vlim, vmax=+vlim)
+    im1 = ax1.imshow(data, origin='lower', cmap='viridis', vmin=-vlim, vmax=+vlim)
     # create an axes on the right side of ax. The width of cax will be 5%
     # of ax and the padding between cax and ax will be fixed at 0.05 inch.
     divider = make_axes_locatable(ax1)
@@ -750,11 +773,16 @@ def plot_detection(ax1, data, cat, sigma, nsigma_plot=5, plot_title=None):
     cat.plot_kron_apertures(ax=ax1, color='white', lw=0.5)
 
 
-def plot_segmentation(ax2, segm, cat):
+def plot_segmentation(ax2, segm, cat, gmask=None):
     """
     Function to plot the segmentation image and catalog produce by photutils
     """
-    im = ax2.imshow(segm, origin='lower', cmap=segm.cmap,
+    # Plot a masked array if gmask is passed
+    if gmask is not None:
+        segm_plot = ma.masked_array(segm, gmask)
+    else:
+        segm_plot = segm
+    im = ax2.imshow(segm_plot, origin='lower', cmap=segm.cmap,
                     interpolation='nearest')
     divider = make_axes_locatable(ax2)
     # create an axes on the right side of ax. The width of cax will be 5%

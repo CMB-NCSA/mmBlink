@@ -28,6 +28,8 @@ def cmdline():
     # Detection options
     parser.add_argument("--rms2D", action='store_true', default=False,
                         help="Perform 2D map of the rms using photutils Background2D StdBackgroundRMS")
+    parser.add_argument("--rms2D_box", action='store', type=int, default=200,
+                        help="Size of box using photutils Background2D StdBackgroundRMS")
     parser.add_argument("--npixels", action='store', type=int, default=20,
                         help="Compress output files with astropy.io.fits.CompImageHDU")
     parser.add_argument("--nsigma_thresh", action='store', type=float, default=5.0,
@@ -61,5 +63,6 @@ if __name__ == "__main__":
     # Example 2, find repeating soueces
     table_centroids = du.find_repeating_sources(d3w.cat, separation=args.max_sep, plot=args.plot, outdir=args.outdir)
     stacked_centroids = du.find_unique_centroids(table_centroids, separation=args.max_sep, plot=args.plot)
+    print("stacked_centroids:")
     print(stacked_centroids)
     print(f"Total time: {du.elapsed_time(t0)}")
