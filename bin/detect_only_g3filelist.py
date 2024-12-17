@@ -14,6 +14,8 @@ def cmdline():
     parser.add_argument("--clobber", action='store_true', default=False,
                         help="Clobber output files")
 
+    parser.add_argument("--field", type=str, action='store', default=None,
+                        help="Field name (i.e. SourceName) for automatically determining point source file to use.")
     # Logging options (loglevel/log_format/log_format_date)
     default_log_format = '[%(asctime)s.%(msecs)03d][%(levelname)s][%(name)s][%(funcName)s] %(message)s'
     default_log_format_date = '%Y-%m-%d %H:%M:%S'
@@ -37,7 +39,7 @@ def cmdline():
     parser.add_argument("--max_sep", action='store', type=float, default=35.0,
                         help="Maximum angular separation to match sources in arcsec")
     parser.add_argument("--plot", action='store_true', default=False,
-                        help="Plot detection diagnostic?")
+                        help="Plot detection diagnostics?")
 
     # Use multiprocessing
     parser.add_argument("--np", action="store", default=1, type=int,

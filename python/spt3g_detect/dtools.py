@@ -9,6 +9,7 @@ from astropy import units as u
 from astropy.stats import SigmaClip
 from astropy.coordinates import SkyCoord
 from astropy.coordinates import FK5
+from astropy.coordinates import search_around_sky
 from astropy.table import Table, vstack
 import photutils.background
 import logging
@@ -22,9 +23,13 @@ import errno
 import time
 import spt3g_detect
 from spt3g import core, maps
+from spt3g import sources
+
 
 # Logger
 LOGGER = logging.getLogger(__name__)
+# Set matplotlib logger at warning level to disengable from default logger
+plt.set_loglevel(level='warning')
 
 
 class detect_3gworker:
@@ -97,16 +102,19 @@ class detect_3gworker:
         obsID = frame['ObservationID']
         band = frame["Id"]
         key = f"{obsID}_{band}"
+        field = frame['SourceName']
         plot_name = os.path.join(self.config.outdir, f"{key}_cat")
         self.logger.info(f"Reading frame[Id]: {frame['Id']}")
         self.logger.debug(f"Reading frame: {frame}")
         self.logger.debug(f"ObservationID: {obsID}")
         self.logger.debug(f"Removing weights: {frame['Id']}")
+        t0 = time.time()
         maps.RemoveWeights(frame, zero_nans=True)
+        self.logger.info(f"Remove Weights time: {elapsed_time(t0)}[s]")
         self.flux[key] = np.asarray(frame['T'])/core.G3Units.mJy
         self.flux_wgt[key] = np.asarray(frame['Wunpol'].TT)*core.G3Units.mJy
-        self.logger.debug(f"Min/Max {self.flux[key].min()} {self.flux[key].max()}")
-        self.logger.debug(f"Min/Max {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
+        self.logger.debug(f"Min/Max Flux: {self.flux[key].min()} {self.flux[key].max()}")
+        self.logger.debug(f"Min/Max Wgt: {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
         # Now we exctract the mask
         try:
             # Zero is no data, and Ones is data
@@ -117,6 +125,7 @@ class detect_3gworker:
         except Exception as e:
             self.logger.warning(e.message)
             flux_mask = None
+
         data = self.flux[key]
         wgt = 1/self.flux_wgt[key]
         self.segm[key], self.cat[key] = detect_with_photutils(data, wgt=wgt, mask=flux_mask,
@@ -125,9 +134,13 @@ class detect_3gworker:
                                                               rms2D=self.config.rms2D, box=self.config.rms2D_box,
                                                               plot=self.config.plot,
                                                               plot_name=plot_name, plot_title=band)
-        # if no detections (i.e. None) we remove dictionaries
-        if self.cat[key] is None:
-            self.logger.info(f"Removing dictionary {key}")
+        # Remove objects that match the sources catalog for that field
+        self.cat[key] = remove_objects_near_sources(self.cat[key], field)
+
+        # if no detections (i.e. None) or no objecs in catalog (i.e. all objects were removed)
+        # we remove it from dictionaries
+        if self.cat[key] is None or len(self.cat[key]) == 0:
+            self.logger.info(f"Removing key: {key} from catalog dictionary ")
             del self.cat[key]
             del self.segm[key]
 
@@ -153,12 +166,31 @@ class detect_3gworker:
             self.setup_logging()
         self.logger.info(f"Opening file: {g3filename}")
         self.logger.info(f"Doing: {k}/{self.nfiles} files")
+
         for frame in core.G3File(g3filename):
+            # Extract ObservationID and field (SourceName)
+            if frame.type == core.G3FrameType.Observation:
+                obsID = frame['ObservationID']
+                try:
+                    SourceName = frame['SourceName']
+                    if self.config.field is not None and SourceName != self.config.field:
+                        self.logger.warning(f"Extracted SourceName: {SourceName} doesn't match configuration")
+                except KeyError:
+                    if self.config.field is not None:
+                        SourceName = self.config.field
+                    self.logger.warning("Could not extract SourceName from Observation frame")
+
             # only read in the map
             if frame.type != core.G3FrameType.Map:
                 continue
+
+            self.logger.info(f"Setting ObservationID to: {obsID}")
+            frame['ObservationID'] = obsID
+            self.logger.info(f"Setting SourceName to: {SourceName}")
+            frame['SourceName'] = SourceName
             self.detect_with_photutils_frame(frame)
 
+        exit()
         self.logger.info(f"Completed: {k}/{self.nfiles} files")
         self.logger.info(f"Total time: {elapsed_time(t0)} for: {g3filename}")
 
@@ -682,6 +714,7 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
 
     """
 
+    t0 = time.time()
     if mask is not None:
         # Select only the indices with flux
         idx = np.where(mask == 1)
@@ -714,6 +747,9 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
         return None, None
     cat = SourceCatalog(data, segm, error=wgt, wcs=wcs)
 
+    LOGGER.info(f"detect_with_photutils runtime: {elapsed_time(t0)} [s]")
+    LOGGER.info(f"Found: {len(cat)} objects")
+
     # Nicer formatting
     tbl = cat.to_table()
     tbl['xcentroid'].info.format = '.2f'  # optional format
@@ -722,9 +758,10 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     tbl['kron_fluxerr'].info.format = '.5f'
     tbl['max_value'].info.format = '.5f'
     tbl['sky_centroid_dms'] = tbl['sky_centroid'].to_string('dms', precision=0)
-    # print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
-    #          'kron_flux', 'kron_fluxerr', 'max_value', 'area'])
+    print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
+              'kron_flux', 'kron_fluxerr', 'max_value', 'area'])
     if plot:
+        t1 = time.time()
         if rms2D:
             fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(24, 6))
         else:
@@ -741,7 +778,9 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
         else:
             plt.show()
         plt.close()
+        LOGGER.info(f"detect_with_photutils PLOT runtime: {elapsed_time(t1)} [s]")
 
+    LOGGER.info(f"detect_with_photutils TOTAL runtime: {elapsed_time(t0)} [s]")
     return segm, tbl
 
 
@@ -827,3 +866,46 @@ def plot_distribution(ax, data, mean, sigma, nsigma=3):
     ax.set_aspect(abs((xright-xleft)/(ybottom-ytop))*ratio)
     ax.set_xlabel("Flux")
     ax.set_title("1D Noise Distribution and Fit")
+
+
+def get_sources_catalog(field):
+    """
+    Function to read the sources catalog for a field.
+    inputs:
+      - field: field name (str)
+    output:
+      - pscat: SkyCoord astropy object
+    """
+    # Get the catalog with masked sources
+    point_source_file = sources.get_field_source_list(field, analysis="lightcurve")
+    _, psra, psdec, __ = sources.read_point_source_mask_file(point_source_file)
+    LOGGER.debug(f"Loading source mask positions from file: {point_source_file}")
+    # Create a SkyCoord object with the sources catalog to make the matching
+    # psra and psdec are in G3 units and need to be converted back to degrees to be use in astropy
+    psra = psra/core.G3Units.deg
+    psdec = psdec/core.G3Units.deg
+    pscat = SkyCoord(ra=psra*u.degree, dec=psdec*u.degree)
+    return pscat
+
+
+def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
+    """
+    Funtion to remove objects from astropy catalog near sources catalog
+    inputs:
+      - field: field name (str)
+      - cat: astropy catalog
+      - max_dist: maximum separation distancen (using 5 arcmin)
+    output:
+      - cat: input astropy catalog without matched sources
+    """
+    # Extract the SkyCoord object
+    cat1 = cat['sky_centroid']
+    # Get a astropy SkyCoord object catalog to match
+    pscat = get_sources_catalog(field)
+    inds1, inds2, dist, _ = search_around_sky(cat1, pscat, max_dist)
+    if len(inds1) > 0:
+        LOGGER.info(f"Found {len(inds1)} matches, will remove them from catalog")
+        cat = cat[~np.isin(np.arange(cat1.size), inds1)]
+    else:
+        LOGGER.info("No matches found in sources catalog")
+    return cat
