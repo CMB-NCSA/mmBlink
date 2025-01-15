@@ -24,12 +24,24 @@ import time
 import spt3g_detect
 from spt3g import core, maps
 from spt3g import sources
+import fitsio
+import copy
+from astropy.wcs import WCS
 
 
 # Logger
 LOGGER = logging.getLogger(__name__)
 # Set matplotlib logger at warning level to disengable from default logger
 plt.set_loglevel(level='warning')
+
+
+# Naming template
+PREFIX = 'SPT3G'
+OBJ_ID = "{prefix}J{ra}{dec}"
+FITS_OUTNAME = "{outdir}/{objID}_{obsid}_{filter}.{ext}"
+LOG_OUTNAME = "{outdir}/{objID}.{ext}"
+BASE_OUTNAME = "{objID}"
+BASEDIR_OUTNAME = "{outdir}/{objID}"
 
 
 class detect_3gworker:
@@ -103,6 +115,18 @@ class detect_3gworker:
         band = frame["Id"]
         key = f"{obsID}_{band}"
         field = frame['SourceName']
+
+        # Get the header of the map and make it a FITSHDR
+        hdr = frame['T'].wcs.to_header()
+        hdr = astropy2fitsio_header(hdr)
+        # Add OBSID, BAND and FIELD to the header of the thumbnail
+        rec = {'name': 'OBSID', 'value': obsID, 'comment': 'Observation ID'}
+        hdr.add_record(rec)
+        rec = {'name': 'BAND', 'value': band, 'comment': 'Observing Frequency'}
+        hdr.add_record(rec)
+        rec = {'name': 'FIELD', 'value': band, 'comment': 'Name of Observing Field'}
+        hdr.add_record(rec)
+
         plot_name = os.path.join(self.config.outdir, f"{key}_cat")
         self.logger.info(f"Reading frame[Id]: {frame['Id']}")
         self.logger.debug(f"Reading frame: {frame}")
@@ -135,7 +159,10 @@ class detect_3gworker:
                                                               plot=self.config.plot,
                                                               plot_name=plot_name, plot_title=band)
         # Remove objects that match the sources catalog for that field
-        self.cat[key] = remove_objects_near_sources(self.cat[key], field)
+        if field != '':
+            self.cat[key] = remove_objects_near_sources(self.cat[key], field)
+        else:
+            self.logger.info("field not defined -- will not call remove_objects_near_sources")
 
         # if no detections (i.e. None) or no objecs in catalog (i.e. all objects were removed)
         # we remove it from dictionaries
@@ -143,6 +170,12 @@ class detect_3gworker:
             self.logger.info(f"Removing key: {key} from catalog dictionary ")
             del self.cat[key]
             del self.segm[key]
+        else:
+            # Here is a good place to plot detections -- experimental
+            print(self.cat[key])
+            write_thumbnails(self.cat[key], data, wgt, hdr)
+            exit()
+        return key
 
     def add_scan_column_to_cat(self):
         """
@@ -167,6 +200,7 @@ class detect_3gworker:
         self.logger.info(f"Opening file: {g3filename}")
         self.logger.info(f"Doing: {k}/{self.nfiles} files")
 
+        metadata_extracted = False
         for frame in core.G3File(g3filename):
             # Extract ObservationID and field (SourceName)
             if frame.type == core.G3FrameType.Observation:
@@ -179,18 +213,32 @@ class detect_3gworker:
                     if self.config.field is not None:
                         SourceName = self.config.field
                     self.logger.warning("Could not extract SourceName from Observation frame")
+                metadata_extracted = True
+
+            # check if obsID/SourceName are actualy in the frame
+            elif frame.type == core.G3FrameType.Map and metadata_extracted is False:
+                try:
+                    obsID = frame['ObservationID']
+                except KeyError:
+                    self.logger.warning("Could not extract obsID from frame")
+                try:
+                    SourceName = frame['SourceName']
+                except KeyError:
+                    SourceName = ''
+                    self.logger.warning("Could not extract SourceName from frame")
 
             # only read in the map
             if frame.type != core.G3FrameType.Map:
                 continue
 
-            self.logger.info(f"Setting ObservationID to: {obsID}")
-            frame['ObservationID'] = obsID
-            self.logger.info(f"Setting SourceName to: {SourceName}")
-            frame['SourceName'] = SourceName
-            self.detect_with_photutils_frame(frame)
+            if 'ObservationID' not in frame:
+                self.logger.info(f"Setting ObservationID to: {obsID}")
+                frame['ObservationID'] = obsID
+            if 'SourceName' not in frame:
+                self.logger.info(f"Setting SourceName to: {SourceName}")
+                frame['SourceName'] = SourceName
+            key = self.detect_with_photutils_frame(frame)
 
-        exit()
         self.logger.info(f"Completed: {k}/{self.nfiles} files")
         self.logger.info(f"Total time: {elapsed_time(t0)} for: {g3filename}")
 
@@ -909,3 +957,145 @@ def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
     else:
         LOGGER.info("No matches found in sources catalog")
     return cat
+
+
+def write_thumbnails(cat, data, wgt, hdr, size=60, clobber=True):
+    """Plot the detections as thumbnails"""
+    dx = int(size/2.0)
+    dy = int(size/2.0)
+
+    wcs = WCS(hdr)
+
+    for k in range(len(cat)):
+        t0 = time.time()
+        x0 = round(cat['xcentroid'][k])
+        y0 = round(cat['ycentroid'][k])
+        y1 = y0 - dy
+        y2 = y0 + dy
+        x1 = x0 - dx
+        x2 = x0 + dx
+        outname = f"{x0}_{y0}.fits"
+        thumb = data[int(y1):int(y2), int(x1):int(x2)]
+        thumb_wgt = wgt[int(y1):int(y2), int(x1):int(x2)]
+        h_section = update_wcs_matrix(hdr, x1, y1)
+        # Construct the name of the Thumbmail using BAND/FILTER/prefix/etc
+        ra, dec = CRVAL1, CRVAL2 = wcs.wcs_pix2world(x0, y0, 1)
+        #ra = float(ra)
+        #dec = float(dec)
+        objID = get_thumbBaseName(ra, dec, prefix='SPT')
+        outname = get_thumbFitsName(ra, dec, hdr['BAND'], hdr['OBSID'],
+                                    objID=objID, prefix='SPT', outdir=".")
+
+        ofits = fitsio.FITS(outname, 'rw', clobber=clobber)
+        ofits.write(thumb, extname='SCI', header=h_section)
+        ofits.write(thumb_wgt, extname='WGT', header=h_section)
+        ofits.close()
+        LOGGER.info(f"Done writing {outname}: {elapsed_time(t0)}")
+
+
+def astropy2fitsio_header(header):
+    """
+    Translate and astropy header object into a fitsio FITSHDR object
+    """
+    # Make the header a FITSHDR object
+    hlist = []
+    for key in header:
+        hlist.append({'name': key, 'value': header[key], 'comment': header.comments[key]})
+    h = fitsio.FITSHDR(hlist)
+    return h
+
+
+def update_wcs_matrix(header, x0, y0, proj='ZEA'):
+    """
+    Update the wcs header object with the right CRPIX[1, 2] CRVAL[1, 2] for a
+    given subsection
+
+    Parameters:
+    header: fits style header
+        The header to work with
+    x0, y0: float
+        The new center of the image
+    naxis1, naxis2: int
+        The number of pixels on each axis.
+
+    Returns:
+        fits style header with the new center.
+    """
+
+    # We need to make a deep copy/otherwise if fails
+    h = copy.deepcopy(header)
+    # Get the astropy.wcs object
+    wcs = WCS(h)
+
+    if proj == 'TAN':
+        # Recompute CRVAL1/2 on the new center x0,y0
+        CRVAL1, CRVAL2 = wcs.wcs_pix2world(x0, y0, 1)
+        # Recast numpy objects as floats
+        CRVAL1 = float(CRVAL1)
+        CRVAL2 = float(CRVAL2)
+        # Asign CRPIX1/2 on the new image
+        CRPIX1 = 1
+        CRPIX2 = 1
+        # Update the values
+        h['CRVAL1'] = CRVAL1
+        h['CRVAL2'] = CRVAL2
+        h['CRPIX1'] = CRPIX1
+        h['CRPIX2'] = CRPIX2
+        h['CTYPE1'] = 'RA---TAN'
+        h['CTYPE2'] = 'DEC--TAN'
+
+    elif proj == 'ZEA':
+        CRPIX1 = float(h['CRPIX1']) - x0
+        CRPIX2 = float(h['CRPIX2']) - y0
+        h['CRPIX1'] = CRPIX1
+        h['CRPIX2'] = CRPIX2
+        LOGGER.debug(f"Updated to CRPIX1:{CRPIX1}, CRPIX2:{CRPIX2}")
+
+    else:
+        raise NameError(f"Projection: {proj} not implemented")
+
+    return h
+
+
+def get_thumbFitsName(ra, dec, filter, obsid,
+                      objID=None, prefix=PREFIX, ext='fits', outdir=os.getcwd()):
+    """ Common function to set the Fits thumbnail name """
+
+    # Format RA,DEC using astropy coordinates
+    coo = FK5(ra*u.degree, dec*u.degree)
+    ra = f'{coo.ra.to_string(unit=u.hourangle, sep="", precision=0, pad=True)}'
+    dec = f'{coo.dec.to_string(sep="", precision=1, alwayssign=True, pad=True)}'
+    if objID is None:
+        objID = OBJ_ID.format(ra=ra, dec=dec, prefix=prefix)
+    # Locals need to be captured at the end
+    kw = locals()
+    outname = FITS_OUTNAME.format(**kw)
+    return outname
+
+
+def get_thumbBaseDirName(ra, dec, objID=None, prefix=PREFIX, outdir=os.getcwd()):
+    """ Common function to set the Fits thumbnail name """
+    # Format RA,DEC using astropy coordinates
+    coo = FK5(ra*u.degree, dec*u.degree)
+    ra = f'{coo.ra.to_string(unit=u.hourangle, sep="", precision=0, pad=True)}'
+    dec = f'{coo.dec.to_string(sep="", precision=1, alwayssign=True, pad=True)}'
+    if objID is None:
+        objID = OBJ_ID.format(ra=ra, dec=dec, prefix=prefix)
+    # Locals need to be captured at the end
+    kw = locals()
+    basedir = BASEDIR_OUTNAME.format(**kw)
+    return basedir
+
+
+def get_thumbBaseName(ra, dec, objID=None, prefix=PREFIX):
+    """ Common function to set the Fits thumbnail name """
+    # Format RA,DEC using astropy coordinates
+    coo = FK5(ra*u.degree, dec*u.degree)
+    ra = f'{coo.ra.to_string(unit=u.hourangle, sep="", precision=0, pad=True)}'
+    dec = f'{coo.dec.to_string(sep="", precision=1, alwayssign=True, pad=True)}'
+    if objID is None:
+        objID = OBJ_ID.format(ra=ra, dec=dec, prefix=prefix)
+    # Locals need to be captured at the end
+    kw = locals()
+    outname = BASE_OUTNAME.format(**kw)
+    return outname
