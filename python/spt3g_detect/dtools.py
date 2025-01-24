@@ -27,6 +27,7 @@ from spt3g import sources
 import fitsio
 import copy
 from astropy.wcs import WCS
+from collections import OrderedDict
 
 
 # Logger
@@ -76,11 +77,15 @@ class detect_3gworker:
             self.segm = manager.dict()
             self.flux = manager.dict()
             self.flux_wgt = manager.dict()
+            self.flux_mask = manager.dict()
+            self.header = manager.dict()
         else:
             self.flux = {}
             self.flux_wgt = {}
+            self.flux_mask = {}
             self.cat = {}
             self.segm = {}
+            self.header = {}
 
     def setup_logging(self):
         """ Simple logger that uses configure_logger() """
@@ -110,33 +115,105 @@ class detect_3gworker:
         else:
             self.logger.info(f"Detected list of [{self.nfiles}] files")
 
-    def detect_with_photutils_frame(self, frame):
+    def load_g3frames(self, g3filename, k):
+        """Read in the data and metadata in a g3frame"""
+        t0 = time.time()
+        self.logger.info(f"Opening file: {g3filename}")
+        self.logger.info(f"Doing: {k}/{self.nfiles} files")
+
+        frames = []
+        metadata_extracted = False
+        for frame in core.G3File(g3filename):
+            # Extract ObservationID and field (SourceName)
+            if frame.type == core.G3FrameType.Observation:
+                obsID = frame['ObservationID']
+                try:
+                    SourceName = frame['SourceName']
+                    if self.config.field is not None and SourceName != self.config.field:
+                        self.logger.warning(f"Extracted SourceName: {SourceName} doesn't match configuration")
+                except KeyError:
+                    if self.config.field is not None:
+                        SourceName = self.config.field
+                    self.logger.warning("Could not extract SourceName from Observation frame")
+                metadata_extracted = True
+
+            # check if obsID/SourceName are actualy in the frame
+            elif frame.type == core.G3FrameType.Map and metadata_extracted is False:
+                try:
+                    obsID = frame['ObservationID']
+                except KeyError:
+                    self.logger.warning("Could not extract obsID from frame")
+                try:
+                    SourceName = frame['SourceName']
+                except KeyError:
+                    SourceName = ''
+                    self.logger.warning("Could not extract SourceName from frame")
+
+            # only read in the map
+            if frame.type != core.G3FrameType.Map:
+                continue
+
+            if 'ObservationID' not in frame:
+                self.logger.info(f"Setting ObservationID to: {obsID}")
+                frame['ObservationID'] = obsID
+            if 'SourceName' not in frame:
+                self.logger.info(f"Setting SourceName to: {SourceName}")
+                frame['SourceName'] = SourceName
+            frames.append(frame)
+
+        self.logger.info(f"Total metadata time: {elapsed_time(t0)} for: {g3filename}")
+        return frames
+
+
+    def load_fits_map(self, filename):
+        # Get header/extensions/hdu
+        t0 = time.time()
+        header, hdunum = get_headers_hdus(filename)
+        key = f"{header['SCI']['OBSID']}_{header['SCI']['BAND']}"
+        self.logger.info(f"Setting key as: {key}")
+        self.logger.debug(f"Done Getting header, hdus: {elapsed_time(t0)}")
+        extnames = header.keys()  # Gets SCI and WGT
+        HDU_SCI = hdunum['SCI']
+        HDU_WGT = hdunum['WGT']
+        self.logger.debug(f"Found EXTNAMES:{extnames}")
+
+        # Intitialize the FITS object
+        ifits = fitsio.FITS(filename, 'r')
+        self.logger.debug(f"Done loading fitsio.FITS({filename}): {elapsed_time(t0)}")
+        self.flux[key] = ifits[HDU_SCI].read()
+        self.flux_wgt[key] = ifits[HDU_WGT].read()
+        self.header[key] = header['SCI']
+        ifits.close()
+        self.logger.debug(f"Min/Max Flux: {self.flux[key].min()} {self.flux[key].max()}")
+        self.logger.debug(f"Min/Max Wgt: {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
+        self.logger.info(f"Done loading filename: {filename} in {elapsed_time(t0)}")
+        return [key]
+
+    def load_g3frame_map(self, frame):
+        # Get the metadata
+        t0 = time.time()
         obsID = frame['ObservationID']
         band = frame["Id"]
         key = f"{obsID}_{band}"
         field = frame['SourceName']
 
-        # Get the header of the map and make it a FITSHDR
+        # Create a fits header for the frame map
         hdr = frame['T'].wcs.to_header()
-        hdr = astropy2fitsio_header(hdr)
-        # Add OBSID, BAND and FIELD to the header of the thumbnail
-        rec = {'name': 'OBSID', 'value': obsID, 'comment': 'Observation ID'}
-        hdr.add_record(rec)
-        rec = {'name': 'BAND', 'value': band, 'comment': 'Observing Frequency'}
-        hdr.add_record(rec)
-        rec = {'name': 'FIELD', 'value': band, 'comment': 'Name of Observing Field'}
-        hdr.add_record(rec)
+        # Add OBSID, BAND and FIELD to the header (for thumbnails, etc)
+        hdr['OBSID'] = (obsID, 'Observation ID')
+        hdr['FIELD'] = (field, 'Name of Observing Field')
+        hdr['BAND'] = (band, 'Observing Frequency')
+        self.header[key] = hdr
 
-        plot_name = os.path.join(self.config.outdir, f"{key}_cat")
         self.logger.info(f"Reading frame[Id]: {frame['Id']}")
         self.logger.debug(f"Reading frame: {frame}")
         self.logger.debug(f"ObservationID: {obsID}")
         self.logger.debug(f"Removing weights: {frame['Id']}")
-        t0 = time.time()
+        t1 = time.time()
         maps.RemoveWeights(frame, zero_nans=True)
-        self.logger.info(f"Remove Weights time: {elapsed_time(t0)}[s]")
+        self.logger.info(f"Remove Weights time: {elapsed_time(t1)}[s]")
         self.flux[key] = np.asarray(frame['T'])/core.G3Units.mJy
-        self.flux_wgt[key] = np.asarray(frame['Wunpol'].TT)*core.G3Units.mJy
+        self.flux_wgt[key] = np.asarray(frame['Wunpol'].TT)*core.G3Units.mJy*core.G3Units.mJy
         self.logger.debug(f"Min/Max Flux: {self.flux[key].min()} {self.flux[key].max()}")
         self.logger.debug(f"Min/Max Wgt: {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
         # Now we exctract the mask
@@ -145,19 +222,35 @@ class detect_3gworker:
             g3_mask = frame["T"].to_mask()
             g3_mask_map = g3_mask.to_map()
             flux_mask = np.asarray(g3_mask_map)
-            flux_mask = np.where(flux_mask == 1, int(1), 0)
+            self.flux_mask[key] = np.where(flux_mask == 1, int(1), 0)
         except Exception as e:
             self.logger.warning(e.message)
-            flux_mask = None
+            self.flux_mask[key] = None
+        self.logger.info(f"Map from frame loaded for {obsID} {band}: {elapsed_time(t0)}[s]")
+        return key
+
+    def detect_with_photutils_key(self, key):
 
         data = self.flux[key]
-        wgt = 1/self.flux_wgt[key]
-        self.segm[key], self.cat[key] = detect_with_photutils(data, wgt=wgt, mask=flux_mask,
+        wgt = self.flux_wgt[key]
+        mask = self.flux_mask[key]
+        wcs = WCS(self.header[key])
+        plot_name = os.path.join(self.config.outdir, f"{key}_cat")
+        plot_title = self.header[key]['BAND']
+        field = self.header[key]['FIELD']
+        self.segm[key], self.cat[key] = detect_with_photutils(data, wgt=wgt, mask=mask,
                                                               nsigma_thresh=self.config.nsigma_thresh,
-                                                              npixels=self.config.npixels, wcs=frame['T'].wcs,
+                                                              npixels=self.config.npixels, wcs=wcs,
                                                               rms2D=self.config.rms2D, box=self.config.rms2D_box,
                                                               plot=self.config.plot,
-                                                              plot_name=plot_name, plot_title=band)
+                                                              plot_name=plot_name, plot_title=plot_title)
+
+        # Test to dump flux wgt into a fits file
+        # fits = fitsio.FITS('test.fits', 'rw', clobber=True)
+        # fits.write(self.flux[key])
+        # fits.write(self.flux_wgt[key])
+        # fits.close()
+
         # Remove objects that match the sources catalog for that field
         if field != '':
             self.cat[key] = remove_objects_near_sources(self.cat[key], field)
@@ -173,7 +266,56 @@ class detect_3gworker:
         else:
             # Here is a good place to plot detections -- experimental
             print(self.cat[key])
-            write_thumbnails(self.cat[key], data, wgt, hdr)
+            # hdr = astropy2fitsio_header(self.header[key])
+            self.write_thumbnails_fitsio(key)
+            exit()
+        return key
+
+    def detect_with_photutils_frame(self, frame):
+
+        # Read in map data/weight/header/etc
+        self.load_map_g3frame(frame)
+        field = frame['SourceName']
+        obsID = frame['ObservationID']
+        band = frame["Id"]
+        key = f"{obsID}_{band}"
+
+        data = self.flux[key]
+        wgt = self.flux_wgt[key]
+        mask = self.flux_mask[key]
+        wcs = WCS(self.header[key])
+        plot_name = os.path.join(self.config.outdir, f"{key}_cat")
+        plot_title = band
+        self.segm[key], self.cat[key] = detect_with_photutils(data, wgt=wgt, mask=mask,
+                                                              nsigma_thresh=self.config.nsigma_thresh,
+                                                              npixels=self.config.npixels, wcs=wcs,
+                                                              rms2D=self.config.rms2D, box=self.config.rms2D_box,
+                                                              plot=self.config.plot,
+                                                              plot_name=plot_name, plot_title=plot_title)
+
+        # Test to dump flux wgt into a fits file
+        # fits = fitsio.FITS('test.fits', 'rw', clobber=True)
+        # fits.write(self.flux[key])
+        # fits.write(self.flux_wgt[key])
+        # fits.close()
+
+        # Remove objects that match the sources catalog for that field
+        if field != '':
+            self.cat[key] = remove_objects_near_sources(self.cat[key], field)
+        else:
+            self.logger.info("field not defined -- will not call remove_objects_near_sources")
+
+        # if no detections (i.e. None) or no objecs in catalog (i.e. all objects were removed)
+        # we remove it from dictionaries
+        if self.cat[key] is None or len(self.cat[key]) == 0:
+            self.logger.info(f"Removing key: {key} from catalog dictionary ")
+            del self.cat[key]
+            del self.segm[key]
+        else:
+            # Here is a good place to plot detections -- experimental
+            print(self.cat[key])
+            # hdr = astropy2fitsio_header(self.header[key])
+            self.write_thumbnails_fitsio(key)
             exit()
         return key
 
@@ -188,7 +330,26 @@ class detect_3gworker:
             self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='scan', index=0)
             self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='scan_max', index=0)
 
-    def run_detection_g3file(self, g3filename, k):
+    def run_detection_file(self, filename, k):
+
+        # Check if g3 or FITS file
+        filetype = g3_or_fits(filename)
+        self.logger.info(f"This file: {filename} is a {filetype} file")
+
+        # We need to loop as each frame can contain more than one map (mult-band case)
+        if filetype == "G3":
+            frames = self.load_g3frames(filename, k)
+            keys = [self.load_g3frame_map(frame) for frame in frames]
+        elif filetype == "FITS":
+            keys = self.load_fits_map(filename)
+
+        for key in keys:
+            self.logger.info(f"Running detection for {key}")
+            self.detect_with_photutils_key(key)
+
+        exit()
+
+    def run_detection_g3file_old(self, g3filename, k):
         """
         Run the task(s) for one g3file.
         The outputs are stored in self.cat and self.segm
@@ -241,6 +402,7 @@ class detect_3gworker:
 
         self.logger.info(f"Completed: {k}/{self.nfiles} files")
         self.logger.info(f"Total time: {elapsed_time(t0)} for: {g3filename}")
+        exit()
 
     def run_detection_g3files(self):
         " Run all g3files"
@@ -264,7 +426,7 @@ class detect_3gworker:
         for g3file in self.config.files:
             self.logger.info(f"Starting mp.Process for {g3file}")
             fargs = (g3file, k)
-            p = mp.Process(target=self.run_detection_g3file, args=fargs)
+            p = mp.Process(target=self.run_detection_file, args=fargs)
             jobs.append(p)
             k += 1
 
@@ -295,7 +457,7 @@ class detect_3gworker:
                 fargs = (g3file, k)
                 kw = {}
                 self.logger.info(f"Starting apply_async.Process for {g3file}")
-                p.apply_async(self.run_detection_g3file, fargs, kw)
+                p.apply_async(self.run_detection_file, fargs, kw)
                 k += 1
             p.close()
             p.join()
@@ -311,8 +473,46 @@ class detect_3gworker:
         " Run all g3files serialy "
         k = 1
         for g3file in self.config.files:
-            self.run_detection_g3file(g3file, k)
+            self.run_detection_file(g3file, k)
             k += 1
+
+    def write_thumbnails_fitsio(self, key, size=60, clobber=True):
+        """Plot the detections as thumbnails"""
+
+        cat = self.cat[key]
+        data = self.flux[key]
+        wgt = self.flux_wgt[key]
+        hdr = self.header[key]
+        # Make a FITSHDR object
+        hdr = astropy2fitsio_header(hdr)
+
+        dx = int(size/2.0)
+        dy = int(size/2.0)
+        wcs = WCS(hdr)
+
+        for k in range(len(cat)):
+            t0 = time.time()
+            x0 = round(cat['xcentroid'][k])
+            y0 = round(cat['ycentroid'][k])
+            y1 = y0 - dy
+            y2 = y0 + dy
+            x1 = x0 - dx
+            x2 = x0 + dx
+            outname = f"{x0}_{y0}.fits"
+            thumb = data[int(y1):int(y2), int(x1):int(x2)]
+            thumb_wgt = wgt[int(y1):int(y2), int(x1):int(x2)]
+            h_section = update_wcs_matrix(hdr, x1, y1)
+            # Construct the name of the Thumbmail using BAND/FILTER/prefix/etc
+            ra, dec = CRVAL1, CRVAL2 = wcs.wcs_pix2world(x0, y0, 1)
+            objID = get_thumbBaseName(ra, dec, prefix='SPT')
+            outname = get_thumbFitsName(ra, dec, hdr['BAND'], hdr['OBSID'],
+                                        objID=objID, prefix='SPT', outdir=".")
+
+            ofits = fitsio.FITS(outname, 'rw', clobber=clobber)
+            ofits.write(thumb, extname='SCI', header=h_section)
+            ofits.write(thumb_wgt, extname='WGT', header=h_section)
+            ofits.close()
+            LOGGER.info(f"Done writing {outname}: {elapsed_time(t0)}")
 
 
 def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
@@ -832,6 +1032,21 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     return segm, tbl
 
 
+def g3_or_fits(filename):
+    """Check based on the filename extension whether this is a FITS or G3 file"""
+
+    ext = ".".join(filename.split(".")[1:])
+    if ext == "fits" or ext == "fits.gz" or ext == "fits.fz":
+        filetype = "FITS"
+    elif ext == "g3" or ext == "g3.gz":
+        filetype = "G3"
+    else:
+        msg = f"Could not find filetype for file {filename}"
+        LOGGER.warning(msg)
+        raise ValueError(msg)
+    return filetype
+
+
 def plot_rms2D(bkg, ax, gmask=None, nsigma_plot=3.5):
 
     # Plot a masked array if gmask is passed
@@ -959,40 +1174,6 @@ def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
     return cat
 
 
-def write_thumbnails(cat, data, wgt, hdr, size=60, clobber=True):
-    """Plot the detections as thumbnails"""
-    dx = int(size/2.0)
-    dy = int(size/2.0)
-
-    wcs = WCS(hdr)
-
-    for k in range(len(cat)):
-        t0 = time.time()
-        x0 = round(cat['xcentroid'][k])
-        y0 = round(cat['ycentroid'][k])
-        y1 = y0 - dy
-        y2 = y0 + dy
-        x1 = x0 - dx
-        x2 = x0 + dx
-        outname = f"{x0}_{y0}.fits"
-        thumb = data[int(y1):int(y2), int(x1):int(x2)]
-        thumb_wgt = wgt[int(y1):int(y2), int(x1):int(x2)]
-        h_section = update_wcs_matrix(hdr, x1, y1)
-        # Construct the name of the Thumbmail using BAND/FILTER/prefix/etc
-        ra, dec = CRVAL1, CRVAL2 = wcs.wcs_pix2world(x0, y0, 1)
-        #ra = float(ra)
-        #dec = float(dec)
-        objID = get_thumbBaseName(ra, dec, prefix='SPT')
-        outname = get_thumbFitsName(ra, dec, hdr['BAND'], hdr['OBSID'],
-                                    objID=objID, prefix='SPT', outdir=".")
-
-        ofits = fitsio.FITS(outname, 'rw', clobber=clobber)
-        ofits.write(thumb, extname='SCI', header=h_section)
-        ofits.write(thumb_wgt, extname='WGT', header=h_section)
-        ofits.close()
-        LOGGER.info(f"Done writing {outname}: {elapsed_time(t0)}")
-
-
 def astropy2fitsio_header(header):
     """
     Translate and astropy header object into a fitsio FITSHDR object
@@ -1099,3 +1280,47 @@ def get_thumbBaseName(ra, dec, objID=None, prefix=PREFIX):
     kw = locals()
     outname = BASE_OUTNAME.format(**kw)
     return outname
+
+
+def get_headers_hdus(filename):
+
+    header = OrderedDict()
+    hdu = OrderedDict()
+
+    is_compressed = False
+    with fitsio.FITS(filename) as fits:
+        # Case 1 -- for well-defined fitsfiles with EXTNAME
+        for k in range(len(fits)):
+            h = fits[k].read_header()
+            # Is compressed
+            if h.get('ZIMAGE'):
+                is_compressed = True
+            # Make sure that we can get the EXTNAME
+            if not h.get('EXTNAME'):
+                continue
+            extname = h['EXTNAME'].strip()
+            if extname == 'COMPRESSED_IMAGE':
+                is_compressed = True
+                continue
+            header[extname] = h
+            hdu[extname] = k
+
+        # Case 2 -- files without EXTNAME
+        if len(header) < 1:
+            LOGGER.debug("Getting EXTNAME by compression")
+            if is_compressed:
+                sci_hdu = 1
+                wgt_hdu = 2
+            else:
+                sci_hdu = 0
+                wgt_hdu = 1
+            # Assign headers and hdus
+            header['SCI'] = fits[sci_hdu].read_header()
+            hdu['SCI'] = sci_hdu
+            try:
+                header['WGT'] = fits[wgt_hdu].read_header()
+                hdu['WGT'] = wgt_hdu
+            except IOError:
+                LOGGER.warning(f"No WGT HDU for: {filename}")
+    fits.close()
+    return header, hdu
