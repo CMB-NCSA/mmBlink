@@ -164,7 +164,6 @@ class detect_3gworker:
         self.logger.info(f"Total metadata time: {elapsed_time(t0)} for: {g3filename}")
         return frames
 
-
     def load_fits_map(self, filename):
         # Get header/extensions/hdu
         t0 = time.time()
@@ -180,10 +179,14 @@ class detect_3gworker:
         # Intitialize the FITS object
         ifits = fitsio.FITS(filename, 'r')
         self.logger.debug(f"Done loading fitsio.FITS({filename}): {elapsed_time(t0)}")
+        self.logger.debug("Reading SCI HDU")
         self.flux[key] = ifits[HDU_SCI].read()
+        self.logger.debug("Reading WGT HDU")
         self.flux_wgt[key] = ifits[HDU_WGT].read()
         self.header[key] = header['SCI']
         ifits.close()
+        self.logger.debug("Done Reading")
+        self.flux_mask[key] = np.where(self.flux_wgt[key] != 0, int(1), 0)
         self.logger.debug(f"Min/Max Flux: {self.flux[key].min()} {self.flux[key].max()}")
         self.logger.debug(f"Min/Max Wgt: {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
         self.logger.info(f"Done loading filename: {filename} in {elapsed_time(t0)}")
@@ -246,16 +249,15 @@ class detect_3gworker:
                                                               plot_name=plot_name, plot_title=plot_title)
 
         # Test to dump flux wgt into a fits file
-        # fits = fitsio.FITS('test.fits', 'rw', clobber=True)
+        # fits = fitsio.FITS(f"test_{key}.fits", 'rw', clobber=True)
         # fits.write(self.flux[key])
         # fits.write(self.flux_wgt[key])
+        # fits.write(self.flux_mask[key])
         # fits.close()
 
         # Remove objects that match the sources catalog for that field
-        if field != '':
+        if self.cat[key] is not None:
             self.cat[key] = remove_objects_near_sources(self.cat[key], field)
-        else:
-            self.logger.info("field not defined -- will not call remove_objects_near_sources")
 
         # if no detections (i.e. None) or no objecs in catalog (i.e. all objects were removed)
         # we remove it from dictionaries
@@ -266,57 +268,7 @@ class detect_3gworker:
         else:
             # Here is a good place to plot detections -- experimental
             print(self.cat[key])
-            # hdr = astropy2fitsio_header(self.header[key])
             self.write_thumbnails_fitsio(key)
-            exit()
-        return key
-
-    def detect_with_photutils_frame(self, frame):
-
-        # Read in map data/weight/header/etc
-        self.load_map_g3frame(frame)
-        field = frame['SourceName']
-        obsID = frame['ObservationID']
-        band = frame["Id"]
-        key = f"{obsID}_{band}"
-
-        data = self.flux[key]
-        wgt = self.flux_wgt[key]
-        mask = self.flux_mask[key]
-        wcs = WCS(self.header[key])
-        plot_name = os.path.join(self.config.outdir, f"{key}_cat")
-        plot_title = band
-        self.segm[key], self.cat[key] = detect_with_photutils(data, wgt=wgt, mask=mask,
-                                                              nsigma_thresh=self.config.nsigma_thresh,
-                                                              npixels=self.config.npixels, wcs=wcs,
-                                                              rms2D=self.config.rms2D, box=self.config.rms2D_box,
-                                                              plot=self.config.plot,
-                                                              plot_name=plot_name, plot_title=plot_title)
-
-        # Test to dump flux wgt into a fits file
-        # fits = fitsio.FITS('test.fits', 'rw', clobber=True)
-        # fits.write(self.flux[key])
-        # fits.write(self.flux_wgt[key])
-        # fits.close()
-
-        # Remove objects that match the sources catalog for that field
-        if field != '':
-            self.cat[key] = remove_objects_near_sources(self.cat[key], field)
-        else:
-            self.logger.info("field not defined -- will not call remove_objects_near_sources")
-
-        # if no detections (i.e. None) or no objecs in catalog (i.e. all objects were removed)
-        # we remove it from dictionaries
-        if self.cat[key] is None or len(self.cat[key]) == 0:
-            self.logger.info(f"Removing key: {key} from catalog dictionary ")
-            del self.cat[key]
-            del self.segm[key]
-        else:
-            # Here is a good place to plot detections -- experimental
-            print(self.cat[key])
-            # hdr = astropy2fitsio_header(self.header[key])
-            self.write_thumbnails_fitsio(key)
-            exit()
         return key
 
     def add_scan_column_to_cat(self):
@@ -331,25 +283,6 @@ class detect_3gworker:
             self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='scan_max', index=0)
 
     def run_detection_file(self, filename, k):
-
-        # Check if g3 or FITS file
-        filetype = g3_or_fits(filename)
-        self.logger.info(f"This file: {filename} is a {filetype} file")
-
-        # We need to loop as each frame can contain more than one map (mult-band case)
-        if filetype == "G3":
-            frames = self.load_g3frames(filename, k)
-            keys = [self.load_g3frame_map(frame) for frame in frames]
-        elif filetype == "FITS":
-            keys = self.load_fits_map(filename)
-
-        for key in keys:
-            self.logger.info(f"Running detection for {key}")
-            self.detect_with_photutils_key(key)
-
-        exit()
-
-    def run_detection_g3file_old(self, g3filename, k):
         """
         Run the task(s) for one g3file.
         The outputs are stored in self.cat and self.segm
@@ -358,53 +291,27 @@ class detect_3gworker:
         # We need to setup logging again for MP
         if self.NP > 1:
             self.setup_logging()
-        self.logger.info(f"Opening file: {g3filename}")
+        self.logger.info(f"Opening file: {filename}")
         self.logger.info(f"Doing: {k}/{self.nfiles} files")
+        # Check if g3 or FITS file
+        filetype = g3_or_fits(filename)
+        self.logger.info(f"This file: {filename} is a {filetype} file")
 
-        metadata_extracted = False
-        for frame in core.G3File(g3filename):
-            # Extract ObservationID and field (SourceName)
-            if frame.type == core.G3FrameType.Observation:
-                obsID = frame['ObservationID']
-                try:
-                    SourceName = frame['SourceName']
-                    if self.config.field is not None and SourceName != self.config.field:
-                        self.logger.warning(f"Extracted SourceName: {SourceName} doesn't match configuration")
-                except KeyError:
-                    if self.config.field is not None:
-                        SourceName = self.config.field
-                    self.logger.warning("Could not extract SourceName from Observation frame")
-                metadata_extracted = True
+        # We need to loop as each frame can contain more than one map (mult-band case)
+        if filetype == "G3":
+            # Load framea and extract keys
+            frames = self.load_g3frames(filename, k)
+            keys = [self.load_g3frame_map(frame) for frame in frames]
+        elif filetype == "FITS":
+            keys = self.load_fits_map(filename)
 
-            # check if obsID/SourceName are actualy in the frame
-            elif frame.type == core.G3FrameType.Map and metadata_extracted is False:
-                try:
-                    obsID = frame['ObservationID']
-                except KeyError:
-                    self.logger.warning("Could not extract obsID from frame")
-                try:
-                    SourceName = frame['SourceName']
-                except KeyError:
-                    SourceName = ''
-                    self.logger.warning("Could not extract SourceName from frame")
-
-            # only read in the map
-            if frame.type != core.G3FrameType.Map:
-                continue
-
-            if 'ObservationID' not in frame:
-                self.logger.info(f"Setting ObservationID to: {obsID}")
-                frame['ObservationID'] = obsID
-            if 'SourceName' not in frame:
-                self.logger.info(f"Setting SourceName to: {SourceName}")
-                frame['SourceName'] = SourceName
-            key = self.detect_with_photutils_frame(frame)
-
+        for key in keys:
+            self.logger.info(f"Running detection for {key}")
+            self.detect_with_photutils_key(key)
         self.logger.info(f"Completed: {k}/{self.nfiles} files")
-        self.logger.info(f"Total time: {elapsed_time(t0)} for: {g3filename}")
-        exit()
+        self.logger.info(f"Total time: {elapsed_time(t0)} for: {filename}")
 
-    def run_detection_g3files(self):
+    def run_detection_files(self):
         " Run all g3files"
         if self.NP > 1:
             self.logger.info("Running detection jobs with multiprocessing")
@@ -484,7 +391,8 @@ class detect_3gworker:
         wgt = self.flux_wgt[key]
         hdr = self.header[key]
         # Make a FITSHDR object
-        hdr = astropy2fitsio_header(hdr)
+        if not isinstance(hdr, fitsio.header.FITSHDR):
+            hdr = astropy2fitsio_header(hdr)
 
         dx = int(size/2.0)
         dy = int(size/2.0)
@@ -1161,10 +1069,15 @@ def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
     output:
       - cat: input astropy catalog without matched sources
     """
+    # Get a astropy SkyCoord object catalog to match
+    try:
+        pscat = get_sources_catalog(field)
+    except KeyError:
+        LOGGER.warning(f"Cannot get sources catalog for field: {field}")
+        return cat
+
     # Extract the SkyCoord object
     cat1 = cat['sky_centroid']
-    # Get a astropy SkyCoord object catalog to match
-    pscat = get_sources_catalog(field)
     inds1, inds2, dist, _ = search_around_sky(cat1, pscat, max_dist)
     if len(inds1) > 0:
         LOGGER.info(f"Found {len(inds1)} matches, will remove them from catalog")
