@@ -27,6 +27,7 @@ from spt3g import sources
 import fitsio
 import copy
 from astropy.wcs import WCS
+from astropy.io import ascii
 from collections import OrderedDict
 
 
@@ -267,8 +268,13 @@ class detect_3gworker:
             del self.segm[key]
         else:
             # Here is a good place to plot detections -- experimental
-            print(self.cat[key])
+            self.logger.info(f"Writing thumbnails for {key}")
             self.write_thumbnails_fitsio(key)
+            catname = f"{key}.cat"
+            ascii.write(self.cat[key]['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
+                        'kron_flux', 'kron_fluxerr', 'max_value', 'area'], catname,
+                        overwrite=True, format='fixed_width')
+            self.logger.info(f"Wrote catalog to: {catname}")
         return key
 
     def add_scan_column_to_cat(self):
@@ -621,6 +627,10 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         stacked_centroids['max_value'].info.format = '.5f'
         stacked_centroids['xcentroid'].info.format = '.2f'
         stacked_centroids['ycentroid'].info.format = '.2f'
+        stacked_centroids['segmented_flux'].info.format = '.1f'
+        stacked_centroids['segmented_fluxerr'].info.format = '.1f'
+        stacked_centroids['kron_flux'].info.format = '.1f'
+        stacked_centroids['kron_fluxerr'].info.format = '.1f'
         logger.debug(f"centroids Done for {label1}")
         logger.debug("After Update")
         logger.debug("#### stacked_centroids\n")
@@ -910,12 +920,15 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     tbl = cat.to_table()
     tbl['xcentroid'].info.format = '.2f'  # optional format
     tbl['ycentroid'].info.format = '.2f'
-    tbl['kron_flux'].info.format = '.5f'
-    tbl['kron_fluxerr'].info.format = '.5f'
-    tbl['max_value'].info.format = '.5f'
-    tbl['sky_centroid_dms'] = tbl['sky_centroid'].to_string('dms', precision=0)
+    tbl['segment_flux'].info.format = '.2f'
+    tbl['segment_fluxerr'].info.format = '.2f'
+    tbl['kron_flux'].info.format = '.2f'
+    tbl['kron_fluxerr'].info.format = '.2f'
+    tbl['max_value'].info.format = '.2f'
+    tbl['sky_centroid_dms'] = tbl['sky_centroid'].to_string('hmsdms', precision=0)
     print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
               'kron_flux', 'kron_fluxerr', 'max_value', 'area'])
+
     if plot:
         t1 = time.time()
         if rms2D:
