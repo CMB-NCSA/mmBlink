@@ -30,7 +30,7 @@ def cmdline():
     # Detection options
     parser.add_argument("--rms2D", action='store_true', default=False,
                         help="Perform 2D map of the rms using photutils Background2D StdBackgroundRMS")
-    parser.add_argument("--rms2D_box", action='store', type=int, default=200,
+    parser.add_argument("--rms2D_box", action='store', type=int, default=60,
                         help="Size of box using photutils Background2D StdBackgroundRMS")
     parser.add_argument("--npixels", action='store', type=int, default=20,
                         help="Compress output files with astropy.io.fits.CompImageHDU")

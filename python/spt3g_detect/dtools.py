@@ -272,7 +272,8 @@ class detect_3gworker:
             self.write_thumbnails_fitsio(key)
             catname = f"{key}.cat"
             ascii.write(self.cat[key]['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
-                        'kron_flux', 'kron_fluxerr', 'max_value', 'area'], catname,
+                        'kron_flux', 'kron_fluxerr', 'max_value', 'elongation',
+                        'ellipticity', 'area'], catname,
                         overwrite=True, format='fixed_width')
             self.logger.info(f"Wrote catalog to: {catname}")
         return key
@@ -862,7 +863,11 @@ def compute_rms2D(data, mask=None, box=200, filter_size=(3, 3), sigmaclip=None):
 
     # Set up the background estimator
     bkg_estimator = photutils.background.StdBackgroundRMS(sigma_clip)
-    bkg = photutils.background.Background2D(data, box, mask=mask, filter_size=filter_size, edge_method='pad',
+    # Masking does not work, as images have a large section that it's empty, instead we trick it
+    # by masking the input data with Nans
+    if mask is not None:
+        data = np.where(mask, data, np.nan)
+    bkg = photutils.background.Background2D(data, box, mask=None, filter_size=filter_size,
                                             sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
     return bkg
 
@@ -897,10 +902,23 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
 
     # Define the threshold, array in the case of rms2D
     if rms2D:
-        bkg = compute_rms2D(data, mask=gmask, box=box, filter_size=filter_size, sigmaclip=sigmaclip)
-        sigma2D = bkg.background
+        bkg = compute_rms2D(data, mask=mask, box=box, filter_size=filter_size, sigmaclip=sigmaclip)
+        sigma2D = np.where(mask, bkg.background, np.nan)
+        # sigma2D = bkg.background
         threshold = nsigma_thresh * sigma2D
         LOGGER.debug("2D RMS computed")
+        # Test to dump 2D rms image into a fits file
+        hdr = wcs.to_header()
+        hdr = astropy2fitsio_header(hdr)
+        fits = fitsio.FITS(f"{plot_name}_bkg.fits", 'rw', clobber=True)
+        fits.write(sigma2D, header=hdr)
+        fits.close()
+        if plot:
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 9))
+            plot_distribution(ax1, data[idx], mean, sigma, nsigma=nsigma_thresh)
+            plot_rms2D(bkg.background, ax2, gmask=gmask)
+            plt.savefig(f"{plot_name}_bkg.pdf")
+            LOGGER.info(f"Created: {plot_name}_bkg.pdf")
     else:
         threshold = nsigma_thresh * sigma
 
@@ -911,7 +929,10 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     if segm is None:
         LOGGER.info("No sources found, returning Nones")
         return None, None
-    cat = SourceCatalog(data, segm, error=wgt, wcs=wcs)
+    cat = SourceCatalog(data, segm, error=wgt, wcs=wcs, progress_bar=True)
+    # Make sure these are added.
+    cat.default_columns.append('elongation')
+    cat.default_columns.append('ellipticity')
 
     LOGGER.info(f"detect_with_photutils runtime: {elapsed_time(t0)} [s]")
     LOGGER.info(f"Found: {len(cat)} objects")
@@ -925,9 +946,13 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     tbl['kron_flux'].info.format = '.2f'
     tbl['kron_fluxerr'].info.format = '.2f'
     tbl['max_value'].info.format = '.2f'
+    tbl['elongation'].info.format = '.2f'
+    tbl['ellipticity'].info.format = '.2f'
+    tbl['eccentricity'].info.format = '.2f'
     tbl['sky_centroid_dms'] = tbl['sky_centroid'].to_string('hmsdms', precision=0)
     print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
-              'kron_flux', 'kron_fluxerr', 'max_value', 'area'])
+              'kron_flux', 'kron_fluxerr', 'max_value',
+              'eccentricity', 'elongation', 'ellipticity', 'area'])
 
     if plot:
         t1 = time.time()
