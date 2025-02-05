@@ -84,7 +84,7 @@ def write_trimmed_fits(frame, hdr, fitsfile):
     wcs = frame['T'].wcs
     # Get the box size and center position to trim
     xc, yc, xsize, ysize = get_field_bbox(frame['SourceName'], wcs)
-    # Trim image using astropy cutour2D
+    # Trim sci and wgt image using astropy cutour2D
     cutout_sci = Cutout2D(data_sci, (xc, yc), (ysize, xsize), wcs=wcs)
     cutout_wgt = Cutout2D(data_wgt, (xc, yc), (ysize, xsize), wcs=wcs)
     hdr.update(cutout_sci.wcs.to_header())
@@ -98,6 +98,9 @@ def write_trimmed_fits(frame, hdr, fitsfile):
     hdul.writeto(fitsfile, overwrite=True)
     del data_sci
     del data_wgt
+    del hdr
+    del hdu_sci
+    del hdu_wgt
 
 
 def remove_units(frame, units):
@@ -170,4 +173,4 @@ if __name__ == "__main__":
     g3files = sys.argv[1:]
     for g3file in g3files:
         logger.info(f"Doing file: {g3file}")
-        g3_to_fits(g3file, trim=False)
+        g3_to_fits(g3file, trim=True)
