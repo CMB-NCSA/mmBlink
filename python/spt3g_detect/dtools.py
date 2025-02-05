@@ -418,7 +418,7 @@ class detect_3gworker:
             thumb_wgt = wgt[int(y1):int(y2), int(x1):int(x2)]
             h_section = update_wcs_matrix(hdr, x1, y1)
             # Construct the name of the Thumbmail using BAND/FILTER/prefix/etc
-            ra, dec = CRVAL1, CRVAL2 = wcs.wcs_pix2world(x0, y0, 1)
+            ra, dec = wcs.wcs_pix2world(x0, y0, 1)
             objID = get_thumbBaseName(ra, dec, prefix='SPT')
             outname = get_thumbFitsName(ra, dec, hdr['BAND'], hdr['OBSID'],
                                         objID=objID, prefix='SPT', outdir=".")
@@ -1161,7 +1161,7 @@ def update_wcs_matrix(header, x0, y0, proj='ZEA'):
 
     if proj == 'TAN':
         # Recompute CRVAL1/2 on the new center x0,y0
-        CRVAL1, CRVAL2 = wcs.wcs_pix2world(x0, y0, 1)
+        CRVAL1, CRVAL2 = wcs.wcs_pix2world(x0, y0, 0)
         # Recast numpy objects as floats
         CRVAL1 = float(CRVAL1)
         CRVAL2 = float(CRVAL2)
