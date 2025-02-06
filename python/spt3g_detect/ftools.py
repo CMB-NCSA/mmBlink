@@ -19,29 +19,12 @@ _keywords_map = {'ObservationStart': ('DATE-BEG', 'Observation start date'),
                  }
 
 
-def create_logger(logger):
-    """Create logger for local functions"""
-    if logger is None:
-        logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
-    # create console handler with a higher log level
-    handler = logging.StreamHandler()
-    handler.setLevel(logging.DEBUG)
-    FORMAT = '[%(asctime)s.%(msecs)03d][%(levelname)s][%(name)s][%(funcName)s] %(message)s'
-    FORMAT_DATE = '%Y-%m-%d %H:%M:%S'
-    formatter = logging.Formatter(FORMAT, FORMAT_DATE)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    return logger
-
-
 # Logger
 logger = logging.getLogger(__name__)
-logger = create_logger(logger)
 
 
-def g3_to_fits(g3file, trim=True, compress=False):
-    """Transform into fits file a g3 file with a skymap"""
+def g3_to_fits(g3file, trim=True, compress=False, quantize_level=16.0, overwrite=True):
+    """Transform g3 file with a FlatSkyMap into a FITS file"""
 
     # Set the output name
     fitsfile = g3file.split(".")[0] + ".fits"
@@ -51,16 +34,18 @@ def g3_to_fits(g3file, trim=True, compress=False):
     metadata = {}
     metadata['PARENT'] = (os.path.basename(g3file), 'Name of parent file')
     for frame in g3:
-        logger.info(f"Reading frame: {frame.type}")
+        logger.debug(f"Reading frame: {frame.type}")
         if frame.type == core.G3FrameType.Observation or frame.type == core.G3FrameType.Map:
-            logger.info(f"Extracting metadata from frame: {frame.type}")
+            logger.debug(f"Extracting metadata from frame: {frame.type}")
             metadata = extract_metadata_frame(frame, metadata)
 
         if frame.type == core.G3FrameType.Map:
             t0 = time.time()
             logger.info(f"Transforming to FITS: {frame.type} -- Id: {frame['Id']}")
+            logger.debug("Removing weights")
             maps.RemoveWeights(frame, zero_nans=True)
             maps.MakeMapsUnpolarized(frame)
+            logger.debug("Removing units --> mJy")
             remove_units(frame, units=core.G3Units.mJy)
             hdr = maps.fitsio.create_wcs_header(frame['T'])
             hdr.update(metadata)
@@ -68,14 +53,19 @@ def g3_to_fits(g3file, trim=True, compress=False):
             if trim:
                 field = metadata['FIELD'][0]
                 logger.info(f"Will write trimmed FITS file for field: {field}")
-                save_skymap_fits_trim(frame, fitsfile, field, hdr=hdr, compress=compress)
+                save_skymap_fits_trim(frame, fitsfile, field,
+                                      hdr=hdr,
+                                      compress=compress,
+                                      quantize_level=quantize_level,
+                                      overwrite=overwrite)
             else:
                 # Get the T and weight frames
                 T = frame['T']
                 W = frame.get('Wpol', frame.get('Wunpol', None))
                 maps.fitsio.save_skymap_fits(fitsfile, T,
-                                             overwrite=True,
+                                             overwrite=overwrite,
                                              compress=compress,
+                                             quantize_level=quantize_level,
                                              hdr=hdr,
                                              W=W)
             logger.info(f"Wrote file: {fitsfile}")
@@ -140,8 +130,8 @@ def get_field_bbox(field, wcs, gridsize=100):
     ysize = round((ymax - ymin), -2)
     xc = round((xmax+xmin)/2.)
     yc = round((ymax+ymin)/2.)
-    logger.info(f"Found center: ({xc}, {yc})")
-    logger.info(f"Found size: ({xsize}, {ysize})")
+    logger.debug(f"Found center: ({xc}, {yc})")
+    logger.debug(f"Found size: ({xsize}, {ysize})")
     return xc, yc, xsize, ysize
 
 
@@ -183,7 +173,7 @@ def save_skymap_fits_trim(frame, fitsfile, field, hdr=None, compress=False,
     data_sci = np.asarray(T)
     if W is not None:
         data_wgt = np.asarray(W.TT)
-    logger.info("Read data and weight")
+    logger.debug("Read data and weight")
 
     # Get the box size and center position to trim
     xc, yc, xsize, ysize = get_field_bbox(field, T.wcs)
@@ -199,6 +189,7 @@ def save_skymap_fits_trim(frame, fitsfile, field, hdr=None, compress=False,
 
     hdul = astropy.io.fits.HDUList()
     if compress:
+        logger.debug(f"Will compress using: {compress}, quantize_level: {quantize_level}")
         hdu_sci = astropy.io.fits.CompImageHDU(
             data=cutout_sci.data,
             name='SCI',

@@ -471,15 +471,18 @@ def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None
     return
 
 
-def create_logger(logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
+def create_logger(logger=None, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
     """
     Simple logger that uses configure_logger()
     """
-    logger = logging.getLogger(__name__)
+    if logger is None:
+        logger = logging.getLogger(__name__)
     configure_logger(logger, logfile=logfile, level=level,
                      log_format=log_format, log_format_date=log_format_date)
     logging.basicConfig(handlers=logger.handlers, level=level)
     logger.propagate = False
+    logger.info(f"Logging Started at level:{level}")
+    # logger.info(f"Running spt3g_ingest version: {spt3g_detect.__version__}")
     return logger
 
 
