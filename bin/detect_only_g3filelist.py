@@ -31,6 +31,8 @@ def cmdline():
                         help="Perform 2D map of the rms using photutils Background2D StdBackgroundRMS")
     parser.add_argument("--rms2D_box", action='store', type=int, default=60,
                         help="Size of box using photutils Background2D StdBackgroundRMS")
+    parser.add_argument("--rms2D_image", action='store_true', default=False,
+                        help="Create a FITS image of the Background2D")
     parser.add_argument("--npixels", action='store', type=int, default=20,
                         help="Compress output files with astropy.io.fits.CompImageHDU")
     parser.add_argument("--nsigma_thresh", action='store', type=float, default=5.0,

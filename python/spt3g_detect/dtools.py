@@ -245,7 +245,9 @@ class detect_3gworker:
         self.segm[key], self.cat[key] = detect_with_photutils(data, wgt=wgt, mask=mask,
                                                               nsigma_thresh=self.config.nsigma_thresh,
                                                               npixels=self.config.npixels, wcs=wcs,
-                                                              rms2D=self.config.rms2D, box=self.config.rms2D_box,
+                                                              rms2D=self.config.rms2D,
+                                                              rms2Dimage=self.config.rms2D_image,
+                                                              box=self.config.rms2D_box,
                                                               plot=self.config.plot,
                                                               plot_name=plot_name, plot_title=plot_title)
 
@@ -875,7 +877,7 @@ def compute_rms2D(data, mask=None, box=200, filter_size=(3, 3), sigmaclip=None):
 
 
 def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=20,
-                          rms2D=False, box=(200, 200), filter_size=(3, 3), sigmaclip=None,
+                          rms2D=False, rms2Dimage=False, box=(200, 200), filter_size=(3, 3), sigmaclip=None,
                           wcs=None, plot=False, plot_title=None, plot_name=None):
 
     """
@@ -910,12 +912,15 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
         # sigma2D = bkg.background
         threshold = nsigma_thresh * sigma2D
         LOGGER.debug(f"2D RMS computed in {elapsed_time(t0)} [s]")
-        # Test to dump 2D rms image into a fits file
-        hdr = wcs.to_header()
-        hdr = astropy2fitsio_header(hdr)
-        fits = fitsio.FITS(f"{plot_name}_bkg.fits", 'rw', clobber=True)
-        fits.write(sigma2D, header=hdr)
-        fits.close()
+        # Dump 2D rms image into a fits file
+        if rms2Dimage:
+            hdr = wcs.to_header()
+            hdr = astropy2fitsio_header(hdr)
+            fitsname = f"{plot_name}_bkg.fits"
+            fits = fitsio.FITS(fitsname, 'rw', clobber=True)
+            fits.write(sigma2D, header=hdr)
+            fits.close()
+            LOGGER.info(f"2D RMS FITS image: {fitsname}")
         if plot:
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 9))
             plot_distribution(ax1, data[idx], mean, sigma, nsigma=nsigma_thresh)
