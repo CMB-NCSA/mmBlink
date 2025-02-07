@@ -322,8 +322,8 @@ class detect_3gworker:
         " Run all g3files"
         if self.NP > 1:
             self.logger.info("Running detection jobs with multiprocessing")
-            # self.run_detection_async()
-            self.run_detection_mp()
+            self.run_detection_async()
+            #self.run_detection_mp()
         else:
             self.logger.info("Running detection jobs serialy")
             self.run_detection_serial()
@@ -467,7 +467,6 @@ def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None
     sh.setLevel(level)
     handlers.append(sh)
     logger.addHandler(sh)
-
     return
 
 
@@ -905,11 +904,12 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
 
     # Define the threshold, array in the case of rms2D
     if rms2D:
+        t0 = time.time()
         bkg = compute_rms2D(data, mask=mask, box=box, filter_size=filter_size, sigmaclip=sigmaclip)
         sigma2D = np.where(mask, bkg.background, np.nan)
         # sigma2D = bkg.background
         threshold = nsigma_thresh * sigma2D
-        LOGGER.debug("2D RMS computed")
+        LOGGER.debug(f"2D RMS computed in {elapsed_time(t0)} [s]")
         # Test to dump 2D rms image into a fits file
         hdr = wcs.to_header()
         hdr = astropy2fitsio_header(hdr)

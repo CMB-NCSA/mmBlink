@@ -16,12 +16,8 @@ def cmdline():
                         help="Clobber output files")
     parser.add_argument("--trim", action='store_true', default=False,
                         help="Trim map to field extent definitions")
-    parser.add_argument("--compress", action="store", default='RICE_1', type=str.upper,
-                        choices=['RICE_1', 'RICE_ONE', 'PLIO_1', 'GZIP_1', 'GZIP_2',
-                                 'HCOMPRESS_1', 'NOCOMPRESS', 'NONE'],
-                        help="Compression type (Optional)")
-    parser.add_argument("--quantize_level", action="store", default=16, type=int,
-                        help="Floating point quantization level")
+    parser.add_argument("--compress", action="store_true", default=False,
+                        help="Compress files using GZIP_2")
     # Logging options (loglevel/log_format/log_format_date)
     default_log_format = '[%(asctime)s.%(msecs)03d][%(levelname)s][%(name)s][%(funcName)s] %(message)s'
     default_log_format_date = '%Y-%m-%d %H:%M:%S'
@@ -32,7 +28,6 @@ def cmdline():
                         help="Format for logging")
     parser.add_argument("--log_format_date", action="store", type=str, default=default_log_format_date,
                         help="Format for date section of logging")
-
     args = parser.parse_args()
     return args
 
@@ -54,7 +49,6 @@ if __name__ == "__main__":
         logger.info(f"Doing file: {g3file}")
         ft.g3_to_fits(g3file, trim=args.trim,
                       compress=args.compress,
-                      quantize_level=args.quantize_level,
                       overwrite=args.clobber)
         logger.info(f"Total time for file {g3file}: {du.elapsed_time(t1)}")
         k += 1

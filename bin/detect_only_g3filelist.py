@@ -26,7 +26,6 @@ def cmdline():
                         help="Format for logging")
     parser.add_argument("--log_format_date", action="store", type=str, default=default_log_format_date,
                         help="Format for date section of logging")
-
     # Detection options
     parser.add_argument("--rms2D", action='store_true', default=False,
                         help="Perform 2D map of the rms using photutils Background2D StdBackgroundRMS")
@@ -40,7 +39,6 @@ def cmdline():
                         help="Maximum angular separation to match sources in arcsec")
     parser.add_argument("--plot", action='store_true', default=False,
                         help="Plot detection diagnostics?")
-
     # Use multiprocessing
     parser.add_argument("--np", action="store", default=1, type=int,
                         help="Run using multi-process, 0=automatic, 1=single-process [default]")

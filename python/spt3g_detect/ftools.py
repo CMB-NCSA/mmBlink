@@ -17,8 +17,6 @@ _keywords_map = {'ObservationStart': ('DATE-BEG', 'Observation start date'),
                  'Id': ('BAND', 'Band name, Observation Frequency'),
                  'SourceName': ('FIELD', 'Name of object'),
                  }
-
-
 # Logger
 logger = logging.getLogger(__name__)
 
@@ -56,7 +54,6 @@ def g3_to_fits(g3file, trim=True, compress=False, quantize_level=16.0, overwrite
                 save_skymap_fits_trim(frame, fitsfile, field,
                                       hdr=hdr,
                                       compress=compress,
-                                      quantize_level=quantize_level,
                                       overwrite=overwrite)
             else:
                 # Get the T and weight frames
@@ -65,7 +62,6 @@ def g3_to_fits(g3file, trim=True, compress=False, quantize_level=16.0, overwrite
                 maps.fitsio.save_skymap_fits(fitsfile, T,
                                              overwrite=overwrite,
                                              compress=compress,
-                                             quantize_level=quantize_level,
                                              hdr=hdr,
                                              W=W)
             logger.info(f"Wrote file: {fitsfile}")
@@ -106,8 +102,8 @@ def get_field_bbox(field, wcs, gridsize=100):
     """
     deg = core.G3Units.deg
     (ra, dec) = sources.get_field_extent(field,
-                                         ra_pad=1*deg,
-                                         dec_pad=2*deg,
+                                         ra_pad=1.5*deg,
+                                         dec_pad=3*deg,
                                          sky_pad=True)
     # we convert back from G3units to degrees
     ra = (ra[0]/deg, ra[1]/deg)
@@ -154,7 +150,6 @@ def crossRAzero(ras):
 
 
 def save_skymap_fits_trim(frame, fitsfile, field, hdr=None, compress=False,
-                          quantize_level=16.0, quantize_method=1,
                           overwrite=True):
 
     if frame.type != core.G3FrameType.Map:
@@ -189,22 +184,18 @@ def save_skymap_fits_trim(frame, fitsfile, field, hdr=None, compress=False,
 
     hdul = astropy.io.fits.HDUList()
     if compress:
-        logger.debug(f"Will compress using: {compress}, quantize_level: {quantize_level}")
+        logger.debug(f"Will compress using: {ctype} compression")
         hdu_sci = astropy.io.fits.CompImageHDU(
             data=cutout_sci.data,
             name='SCI',
             header=hdr_sci,
-            compression_type=ctype,
-            quantize_method=quantize_method,
-            quantize_level=quantize_level)
+            compression_type=ctype)
         if W:
             hdu_wgt = astropy.io.fits.CompImageHDU(
                 data=cutout_wgt.data,
                 name='WGT',
                 header=hdr_wgt,
-                compression_type=ctype,
-                quantize_method=quantize_method,
-                quantize_level=quantize_level)
+                compression_type=ctype)
     else:
         hdu_sci = astropy.io.fits.ImageHDU(data=cutout_sci.data, header=hdr)
         if W:
