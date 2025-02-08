@@ -300,8 +300,8 @@ class detect_3gworker:
         """
         t0 = time.time()
         # We need to setup logging again for MP
-        if self.NP > 1:
-            self.setup_logging()
+        #if self.NP > 1:
+        #    self.setup_logging()
         self.logger.info(f"Opening file: {filename}")
         self.logger.info(f"Doing: {k}/{self.nfiles} files")
         # Check if g3 or FITS file
