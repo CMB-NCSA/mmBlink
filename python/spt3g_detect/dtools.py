@@ -33,6 +33,8 @@ from collections import OrderedDict
 
 # Logger
 LOGGER = logging.getLogger(__name__)
+LOGGER.propagate = False
+
 # Set matplotlib logger at warning level to disengable from default logger
 plt.set_loglevel(level='warning')
 
@@ -93,11 +95,11 @@ class detect_3gworker:
         """ Simple logger that uses configure_logger() """
 
         # Create the logger
+        if self.logger is None:
+            self.logger = logging.getLogger(__name__)
         create_logger(logger=self.logger, level=self.config.loglevel,
                       log_format=self.config.log_format,
                       log_format_date=self.config.log_format_date)
-        if self.logger is None:
-            self.logger = logging.getLogger(__name__)
         self.logger.info(f"Logging Started at level:{self.config.loglevel}")
         self.logger.info(f"Running spt3g_ingest version: {spt3g_detect.__version__}")
 
@@ -300,8 +302,8 @@ class detect_3gworker:
         """
         t0 = time.time()
         # We need to setup logging again for MP
-        #if self.NP > 1:
-        #    self.setup_logging()
+        if self.NP > 1:
+            self.setup_logging()
         self.logger.info(f"Opening file: {filename}")
         self.logger.info(f"Doing: {k}/{self.nfiles} files")
         # Check if g3 or FITS file
