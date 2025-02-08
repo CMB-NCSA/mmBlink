@@ -56,6 +56,7 @@ class detect_3gworker:
         self.config = types.SimpleNamespace(**keys)
 
         # Start Logging
+        self.logger = LOGGER
         self.setup_logging()
 
         # Prepare things
@@ -92,10 +93,11 @@ class detect_3gworker:
         """ Simple logger that uses configure_logger() """
 
         # Create the logger
-        create_logger(level=self.config.loglevel,
+        create_logger(logger=self.logger, level=self.config.loglevel,
                       log_format=self.config.log_format,
                       log_format_date=self.config.log_format_date)
-        self.logger = logging.getLogger(__name__)
+        if self.logger is None:
+            self.logger = logging.getLogger(__name__)
         self.logger.info(f"Logging Started at level:{self.config.loglevel}")
         self.logger.info(f"Running spt3g_ingest version: {spt3g_detect.__version__}")
 
@@ -324,8 +326,8 @@ class detect_3gworker:
         " Run all g3files"
         if self.NP > 1:
             self.logger.info("Running detection jobs with multiprocessing")
-            #self.run_detection_async()
-            self.run_detection_mp()
+            self.run_detection_async()
+            #self.run_detection_mp()
         else:
             self.logger.info("Running detection jobs serialy")
             self.run_detection_serial()
