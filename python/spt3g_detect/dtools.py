@@ -324,8 +324,8 @@ class detect_3gworker:
         " Run all g3files"
         if self.NP > 1:
             self.logger.info("Running detection jobs with multiprocessing")
-            self.run_detection_async()
-            #self.run_detection_mp()
+            #self.run_detection_async()
+            self.run_detection_mp()
         else:
             self.logger.info("Running detection jobs serialy")
             self.run_detection_serial()
