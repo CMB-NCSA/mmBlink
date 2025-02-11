@@ -83,6 +83,8 @@ class detect_3gworker:
             self.flux_wgt = manager.dict()
             self.flux_mask = manager.dict()
             self.header = manager.dict()
+            self.obsIDs = manager.list()
+            self.bands = manager.dict()
         else:
             self.flux = {}
             self.flux_wgt = {}
@@ -90,6 +92,8 @@ class detect_3gworker:
             self.cat = {}
             self.segm = {}
             self.header = {}
+            self.obsIDs = []
+            self.bands = {}
 
     def setup_logging(self):
         """ Simple logger that uses configure_logger() """
@@ -164,7 +168,6 @@ class detect_3gworker:
             if 'SourceName' not in frame:
                 self.logger.info(f"Setting SourceName to: {SourceName}")
                 frame['SourceName'] = SourceName
-            frames.append(frame)
 
         self.logger.info(f"Total metadata time: {elapsed_time(t0)} for: {g3filename}")
         return frames
@@ -195,6 +198,12 @@ class detect_3gworker:
         self.logger.debug(f"Min/Max Flux: {self.flux[key].min()} {self.flux[key].max()}")
         self.logger.debug(f"Min/Max Wgt: {self.flux_wgt[key].min()} {self.flux_wgt[key].max()}")
         self.logger.info(f"Done loading filename: {filename} in {elapsed_time(t0)}")
+
+        # Adding obsID to list of loaded list
+        obsID = header['SCI']['OBSID']
+        if obsID not in self.obsIDs:
+            self.obsIDs.append(obsID)
+
         return [key]
 
     def load_g3frame_map(self, frame):
@@ -235,6 +244,9 @@ class detect_3gworker:
             self.logger.warning(e.message)
             self.flux_mask[key] = None
         self.logger.info(f"Map from frame loaded for {obsID} {band}: {elapsed_time(t0)}[s]")
+        # Adding obsID to list of loaded list
+        if obsID not in self.obsIDs:
+            self.obsIDs.append(obsID)
         return key
 
     def detect_with_photutils_key(self, key):
@@ -278,10 +290,16 @@ class detect_3gworker:
             self.write_thumbnails_fitsio(key)
             catname = f"{key}.cat"
             ascii.write(self.cat[key]['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
-                        'kron_flux', 'kron_fluxerr', 'max_value', 'elongation',
-                        'ellipticity', 'area'], catname,
-                        overwrite=True, format='fixed_width')
+                        'kron_flux', 'kron_fluxerr', 'max_value', 'elongation', 'ellipticity', 'area'],
+                        catname, overwrite=True, format='fixed_width')
             self.logger.info(f"Wrote catalog to: {catname}")
+            # Store the bands for obsID that was catalogued
+            band = self.header[key]['BAND']
+            obsID = self.header[key]['OBSID']
+            if obsID not in self.bands:
+                self.bands[obsID] = []
+            self.bands[obsID].append(band)
+
         return key
 
     def add_scan_column_to_cat(self):
@@ -319,8 +337,13 @@ class detect_3gworker:
             keys = self.load_fits_map(filename)
 
         for key in keys:
-            self.logger.info(f"Running detection for {key}")
-            self.detect_with_photutils_key(key)
+            # Make sure we match the bands requested
+            band = self.header[key]['BAND']
+            if band not in self.config.bands:
+                self.logger.info(f"Skipping {key}, not in --bands {self.config.bands}")
+            else:
+                self.logger.info(f"Running detection for {key}")
+                self.detect_with_photutils_key(key)
         self.logger.info(f"Completed: {k}/{self.nfiles} files")
         self.logger.info(f"Total time: {elapsed_time(t0)} for: {filename}")
 
@@ -329,7 +352,7 @@ class detect_3gworker:
         if self.NP > 1:
             self.logger.info("Running detection jobs with multiprocessing")
             self.run_detection_async()
-            #self.run_detection_mp()
+            # self.run_detection_mp()
         else:
             self.logger.info("Running detection jobs serialy")
             self.run_detection_serial()
@@ -395,6 +418,15 @@ class detect_3gworker:
         for g3file in self.config.files:
             self.run_detection_file(g3file, k)
             k += 1
+
+    def match_dual_bands(self):
+        print("Hello")
+        for obsID in self.bands.keys():
+            self.bands[obsID].sort()
+            if self.bands[obsID] == self.config.bands:
+                self.logger.debug(f"Will atempt match for {obsID}, bands: {self.bands[obsID]}")
+            else:
+                self.logger.debug(f"No dual match for {obsID}, bands: {self.bands[obsID]} ")
 
     def write_thumbnails_fitsio(self, key, size=60, clobber=True):
         """Plot the detections as thumbnails"""
@@ -569,6 +601,7 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         cat2 = table_centroids[label2]['sky_centroid']
         t2 = table_centroids[label2]
 
+
         # Find matching objects to avoid duplicates
         idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
         # Define idxnew, the objects not matched in table2/cat2 that need to be appended
@@ -606,7 +639,6 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
             new_stack = vstack([t1, t2[idxnew2]])
             stacked_centroids = new_stack
             logger.info(f"{label1}-{label2} Stacked")
-
         else:
             stacked_centroids = t1
             logger.info(f"{label1}-{label2} No new positions to add")
@@ -636,8 +668,8 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         stacked_centroids['max_value'].info.format = '.5f'
         stacked_centroids['xcentroid'].info.format = '.2f'
         stacked_centroids['ycentroid'].info.format = '.2f'
-        stacked_centroids['segmented_flux'].info.format = '.1f'
-        stacked_centroids['segmented_fluxerr'].info.format = '.1f'
+        stacked_centroids['segment_flux'].info.format = '.1f'
+        stacked_centroids['segment_fluxerr'].info.format = '.1f'
         stacked_centroids['kron_flux'].info.format = '.1f'
         stacked_centroids['kron_fluxerr'].info.format = '.1f'
         logger.debug(f"centroids Done for {label1}")

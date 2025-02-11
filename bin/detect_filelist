@@ -16,6 +16,8 @@ def cmdline():
 
     parser.add_argument("--field", type=str, action='store', default=None,
                         help="Field name (i.e. SourceName) for automatically determining point source file to use.")
+    parser.add_argument("--bands",  nargs='+', action='store', default=['90GHz', '150GHz'],
+                        help="List of bands to use [90GHz, 150GHz]")
     # Logging options (loglevel/log_format/log_format_date)
     default_log_format = '[%(asctime)s.%(msecs)03d][%(levelname)s][%(name)s][%(funcName)s] %(message)s'
     default_log_format_date = '%Y-%m-%d %H:%M:%S'
@@ -46,8 +48,8 @@ def cmdline():
                         help="Run using multi-process, 0=automatic, 1=single-process [default]")
     parser.add_argument("--ntheads", action="store", default=1, type=int,
                         help="The number of threads used by numexpr 0=automatic, 1=single [default]")
-
     args = parser.parse_args()
+    args.bands.sort()
     return args
 
 
@@ -57,11 +59,18 @@ if __name__ == "__main__":
     t0 = time.time()
     args = cmdline()
     d3w = du.detect_3gworker(**args.__dict__)
-    t0 = time.time()
     d3w.run_detection_files()
-    # d3w.run_detection_serial()
-    # d3w.run_detection_mp()
     print(f"Total time: {du.elapsed_time(t0)} for [run_detection_files]")
+    d3w.match_dual_bands()
+    exit()
+
+    # Example 1, find all positions
+    stacked_centroids = du.find_unique_centroids(d3w.cat, separation=args.max_sep, plot=args.plot)
+    #print("stacked_centroids:")
+    #print(stacked_centroids)
+    print(f"Total time: {du.elapsed_time(t0)}")
+    exit()
+
     # Example 2, find repeating soueces
     table_centroids = du.find_repeating_sources(d3w.cat, separation=args.max_sep, plot=args.plot, outdir=args.outdir)
     stacked_centroids = du.find_unique_centroids(table_centroids, separation=args.max_sep, plot=args.plot)
