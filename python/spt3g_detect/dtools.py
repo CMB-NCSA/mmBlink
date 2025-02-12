@@ -29,6 +29,10 @@ import copy
 from astropy.wcs import WCS
 from astropy.io import ascii
 from collections import OrderedDict
+from photutils.utils.exceptions import NoDetectionsWarning
+import warnings
+# to ignore astropy NoDetectionsWarning
+warnings.filterwarnings("ignore", category=NoDetectionsWarning)
 
 
 # Logger
@@ -187,7 +191,7 @@ class detect_3gworker:
             return []
 
         key = f"{header['SCI']['OBSID']}_{header['SCI']['BAND']}"
-        self.logger.info(f"Setting key as: {key}")
+        self.logger.info(f"Setting observation key as: {key}")
         self.logger.debug(f"Done Getting header, hdus: {elapsed_time(t0)}")
         extnames = header.keys()  # Gets SCI and WGT
         HDU_SCI = hdunum['SCI']
@@ -295,7 +299,6 @@ class detect_3gworker:
             del self.cat[key]
             del self.segm[key]
         else:
-
             # Add metadata to the catalog
             self.cat[key].meta['band'] = self.header[key]['BAND']
             self.cat[key].meta['obsID'] = self.header[key]['OBSID']
@@ -316,16 +319,19 @@ class detect_3gworker:
             self.bands[obsID].append(band)
         return key
 
-    def add_scan_column_to_cat(self):
+    def add_obs_column_to_cat(self):
         """
-        Add scan and scan_max columns to catalogs
+        Add obs and obs_max columns to catalogs
         This needs to be done outside the MP call,
         otherwise the dictionaries are not updated as excepeted
         """
         for key in self.cat.keys():
-            self.logger.info(f"Adding scan column for {key}")
-            self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='scan', index=0)
-            self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='scan_max', index=0)
+            self.logger.info(f"Adding obs/obs_max/band column for {key}")
+            obsID = self.cat[key].meta['obsID']
+            band = self.cat[key].meta['band']
+            self.cat[key].add_column(np.array([obsID]*len(self.cat[key])), name='obs', index=0)
+            self.cat[key].add_column(np.array([key]*len(self.cat[key])), name='obs_max', index=0)
+            self.cat[key].add_column(np.array([band]*len(self.cat[key])), name='band', index=0)
 
     def run_detection_file(self, filename, k):
         """
@@ -367,8 +373,8 @@ class detect_3gworker:
             self.logger.info("Running detection jobs serialy")
             self.run_detection_serial()
 
-        # Finally we add the scan and scan_max columns
-        self.add_scan_column_to_cat()
+        # We add the obs and obs_max columns
+        self.add_obs_column_to_cat()
 
     def run_detection_mp(self):
         " Run g3files using multiprocessing.Process in chunks of NP"
@@ -435,17 +441,17 @@ class detect_3gworker:
             self.logger.info(f"Not enough bands: {self.config.bands} to run dual match")
             return
         self.matched_cat = {}
+        # Loop over all of the observations
         for obsID in self.bands.keys():
-            self.bands[obsID].sort()
             if self.bands[obsID] == self.config.bands:
                 self.logger.debug(f"Will atempt match for {obsID}, bands: {self.bands[obsID]}")
                 key1 = f"{obsID}_{self.bands[obsID][0]}"
                 key2 = f"{obsID}_{self.bands[obsID][1]}"
-                labelID = f"{obsID}_{self.bands[obsID][0]}_{self.bands[obsID][1]}"
                 self.logger.info(f"Doing dual band match {key1} vs {key2}")
-                self.matched_cat[obsID] = find_dual_detections(self.cat[key1], self.cat[key2], labelID)
+                self.matched_cat[obsID] = find_dual_detections(self.cat[key1], self.cat[key2])
             else:
                 self.logger.debug(f"No dual match for {obsID}, bands: {self.bands[obsID]} ")
+        return self.matched_cat
 
     def write_thumbnails_fitsio(self, key, size=60, clobber=True):
         """Plot the detections as thumbnails"""
@@ -594,22 +600,29 @@ def chunker(seq, size):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 
-def find_dual_detections(t1, t2, labelID, separation=20, plot=False):
+def find_dual_detections(t1, t2, separation=20, plot=False):
     # Find unique centroids betwen two catalogs
     # This is a shorter version of the function find_repeating_sources()
     logger = LOGGER
     max_sep = separation*u.arcsec
     stacked_centroids = None
+    # Make sure that we have the same obsID
+    if t1.meta['obsID'] != t2.meta['obsID']:
+        raise ValueError("values for obsID are not the same")
 
+    obsID = t1.meta['obsID']
+    band1 = t1.meta['band']
+    band2 = t2.meta['band']
     cat1 = t1['sky_centroid']
     cat2 = t2['sky_centroid']
+    labelID = f"{obsID}_{band1}_{band2}"
     logger.debug(f"Dual band match for: {labelID}")
     logger.debug(f"N in cat1: {len(cat1)} cat2: {len(cat2)}")
 
     # Find matching objects to avoid duplicates
     idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
 
-    # Proceed only if we have matches
+    # Proceed only if we have matches, otherwise return None
     if len(idxcat1) == 0:
         logger.info(f"*** No matches for: {labelID} ***")
         return None
@@ -629,42 +642,46 @@ def find_dual_detections(t1, t2, labelID, separation=20, plot=False):
 
     # Get the ids with max value
     value_max = np.array([t1[idxcat1]['max_value'], t2[idxcat2]['max_value']])
-    scan_value = np.array([t1[idxcat1]['scan'], t2[idxcat2]['scan']])
+    obs_value = np.array([t1[idxcat1]['obs'], t2[idxcat2]['obs']])
     value_max = value_max.max(axis=0)
     idmax = value_max.argmax(axis=0)
-    scan_max = scan_value.T[0][idmax]
+    obs_max = obs_value.T[0][idmax]
 
     # We based our table on t1 and update with (some) averages with positions
     stacked_centroids = t1
     # Before Update
     logger.debug("Before Update")
     t = stacked_centroids['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
-                          'scan', 'scan_max', 'max_value',
+                          'obs', 'obs_max', 'max_value',
                           'eccentricity', 'elongation', 'ellipticity', 'area']
     logger.debug(f"\n{t}\n")
     # Update centroids with averages
     # Create a Skycoord object
     coords = SkyCoord(xc_sky, yc_sky, frame=FK5, unit='deg')
-    stacked_centroids['index'] = tblidx
+    if 'index' not in stacked_centroids.colnames:
+        stacked_centroids.add_column(tblidx, name='index', index=0)
+    else:
+        stacked_centroids['index'] = tblidx
     stacked_centroids['sky_centroid'] = coords
     stacked_centroids['xcentroid'] = xc_pix
     stacked_centroids['ycentroid'] = yc_pix
     stacked_centroids['ncoords'] = ncoords
-    stacked_centroids['scan_max'] = scan_max
+    stacked_centroids['obs_max'] = obs_max
     stacked_centroids['max_value'] = value_max
-    stacked_centroids['max_value'].info.format = '.5f'
+    stacked_centroids['max_value'].info.format = '.2f'
     stacked_centroids['xcentroid'].info.format = '.2f'
     stacked_centroids['ycentroid'].info.format = '.2f'
-    stacked_centroids['segment_flux'].info.format = '.1f'
-    stacked_centroids['segment_fluxerr'].info.format = '.1f'
-    stacked_centroids['kron_flux'].info.format = '.1f'
-    stacked_centroids['kron_fluxerr'].info.format = '.1f'
+    stacked_centroids['segment_flux'].info.format = '.2f'
+    stacked_centroids['segment_fluxerr'].info.format = '.2f'
+    stacked_centroids['kron_flux'].info.format = '.2f'
+    stacked_centroids['kron_fluxerr'].info.format = '.2f'
     stacked_centroids['sky_centroid_dms'] = stacked_centroids['sky_centroid'].to_string('hmsdms', precision=0)
+    stacked_centroids.add_index('index')
 
     logger.debug("After Update")
     logger.debug("#### stacked_centroids\n")
     t = stacked_centroids['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
-                          'scan', 'scan_max', 'max_value', 'ncoords',
+                          'obs', 'obs_max', 'max_value', 'ncoords',
                           'eccentricity', 'elongation', 'ellipticity', 'area']
     logger.debug(f"\n{t}\n")
 
@@ -677,12 +694,15 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
     max_sep = separation*u.arcsec
     stacked_centroids = None
     labelIDs = list(table_centroids.keys())
-    for k in range(len(labelIDs)-1):
+    if len(labelIDs) < 2:
+        logger.warning("Will not run find_unique_centroids() -- < 2 catalogs to match!")
+        # Return the 1st and only element in the dictionary
+        return table_centroids[labelIDs[0]]
 
+    for k in range(len(labelIDs)-1):
         # Select current and next table IDs
         label1 = labelIDs[k]
         label2 = labelIDs[k+1]
-
         logger.info(f"Doing: {k}/{len(labelIDs)-2}")
 
         # Extract the catalogs (i.e. SkyCoord objects) for search_around_sky
@@ -711,26 +731,27 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
             xx_pix = stack_cols_lists(t1['xcentroid'].data, t2['xcentroid'].data, idxcat1, idxcat2)
             yy_pix = stack_cols_lists(t1['ycentroid'].data, t2['ycentroid'].data, idxcat1, idxcat2)
             value_max = stack_cols_lists(t1['max_value'].data, t2['max_value'].data, idxcat1, idxcat2, pad=True)
-            scan_max = stack_cols_lists(t1['scan_max'].data, t2['scan_max'].data, idxcat1, idxcat2, pad=True)
+            obs_max = stack_cols_lists(t1['obs_max'].data, t2['obs_max'].data, idxcat1, idxcat2, pad=True)
         else:
             xx_sky = stack_cols_lists(xx_sky, t2['sky_centroid'].ra.data, idxcat1, idxcat2)
             yy_sky = stack_cols_lists(yy_sky, t2['sky_centroid'].dec.data, idxcat1, idxcat2)
             xx_pix = stack_cols_lists(xx_pix, t2['xcentroid'].data, idxcat1, idxcat2)
             yy_pix = stack_cols_lists(yy_pix, t2['ycentroid'].data, idxcat1, idxcat2)
             value_max = stack_cols_lists(value_max, t2['max_value'].data, idxcat1, idxcat2, pad=True)
-            scan_max = stack_cols_lists(scan_max, t2['scan_max'].data, idxcat1, idxcat2, pad=True)
+            obs_max = stack_cols_lists(obs_max, t2['obs_max'].data, idxcat1, idxcat2, pad=True)
 
-        # Here we update the max_values and scan_max label
+        # Here we update the max_values and obs_max label
         # We make them np.array so we can operate on them
         value_max = np.array(value_max)
-        scan_max = np.array(scan_max)
+        obs_max = np.array(obs_max)
         idmax = value_max.argmax(axis=1)
         # We store them back in the same arrays/lists
         value_max = value_max.max(axis=1)
-        scan_max = [scan_max[i][idmax[i]] for i in range(len(idmax))]
+        obs_max = [obs_max[i][idmax[i]] for i in range(len(idmax))]
 
         # If we have unmatched objects in cat2 (i.e. idxnew has elements), we append these
         if len(idxnew2) > 0:
+            # inherit metadata from t1
             new_stack = vstack([t1, t2[idxnew2]])
             stacked_centroids = new_stack
             logger.info(f"{label1}-{label2} Stacked")
@@ -745,6 +766,7 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         yc_sky = mean_list_of_list(yy_sky)
         # Update the number of coordinates points we have so far
         ncoords = [len(x) for x in xx_pix]
+        tblidx = np.arange(len(xc_sky)) + 1
 
         # Before Update
         logger.debug("Before Update")
@@ -753,20 +775,24 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         # Update centroids with averages
         # Create a Skycoord object
         coords = SkyCoord(xc_sky, yc_sky, frame=FK5, unit='deg')
-        stacked_centroids['index'] = np.arange(len(coords)) + 1
+        if 'index' not in stacked_centroids.colnames:
+            stacked_centroids.add_column(tblidx, name='index', index=0)
+        else:
+            stacked_centroids['index'] = tblidx
         stacked_centroids['sky_centroid'] = coords
         stacked_centroids['xcentroid'] = xc_pix
         stacked_centroids['ycentroid'] = yc_pix
         stacked_centroids['ncoords'] = ncoords
-        stacked_centroids['scan_max'] = scan_max
+        stacked_centroids['obs_max'] = obs_max
         stacked_centroids['max_value'] = value_max
-        stacked_centroids['max_value'].info.format = '.5f'
+        stacked_centroids['max_value'].info.format = '.2f'
         stacked_centroids['xcentroid'].info.format = '.2f'
         stacked_centroids['ycentroid'].info.format = '.2f'
-        stacked_centroids['segment_flux'].info.format = '.1f'
-        stacked_centroids['segment_fluxerr'].info.format = '.1f'
-        stacked_centroids['kron_flux'].info.format = '.1f'
-        stacked_centroids['kron_fluxerr'].info.format = '.1f'
+        stacked_centroids['segment_flux'].info.format = '.2f'
+        stacked_centroids['segment_fluxerr'].info.format = '.2f'
+        stacked_centroids['kron_flux'].info.format = '.2f'
+        stacked_centroids['kron_fluxerr'].info.format = '.2f'
+        stacked_centroids.add_index('index')
         logger.debug(f"centroids Done for {label1}")
         logger.debug("After Update")
         logger.debug("#### stacked_centroids\n")
@@ -836,19 +862,19 @@ def find_repeating_sources(cat, separation=20, plot=False, outdir=None):
 
         # Get the ids with max value
         max_value = np.array([cat[scan1][idxcat1]['max_value'], cat[scan2][idxcat2]['max_value']])
-        scan_value = np.array([cat[scan1][idxcat1]['scan'], cat[scan2][idxcat2]['scan']])
+        obs_value = np.array([cat[scan1][idxcat1]['obs'], cat[scan2][idxcat2]['obs']])
         max_value_max = max_value.max(axis=0)
         idmax = max_value.argmax(axis=0)
-        scan_max = scan_value.T[0][idmax]
+        obs_max = obs_value.T[0][idmax]
 
         # Create a Skycoord object
         coords = SkyCoord(xc_sky, yc_sky, frame=FK5, unit='deg')
-        table_centroids[labelID] = Table([tblidx, label_col, coords, xc_pix, yc_pix, scan_max, max_value_max, ncoords],
+        table_centroids[labelID] = Table([tblidx, label_col, coords, xc_pix, yc_pix, obs_max, max_value_max, ncoords],
                                          names=('index', 'labelID', 'sky_centroid', 'xcentroid', 'ycentroid',
-                                                'scan_max', 'max_value', 'ncoords'))
+                                                'obs_max', 'max_value', 'ncoords'))
         table_centroids[labelID]['xcentroid'].info.format = '.2f'
         table_centroids[labelID]['ycentroid'].info.format = '.2f'
-        table_centroids[labelID]['max_value'].info.format = '.5f'
+        table_centroids[labelID]['max_value'].info.format = '.2f'
         logger.info(f"centroids Done for: {labelID}")
         print(table_centroids[labelID])
         if plot:
@@ -1070,7 +1096,7 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     segm = finder(data, threshold)
     # We stop if we don't find source
     if segm is None:
-        LOGGER.info("No sources found, returning Nones")
+        LOGGER.info("No sources found in astropy/segm, returning (None, None)")
         return None, None
     cat = SourceCatalog(data, segm, error=wgt, wcs=wcs, progress_bar=True)
     # Make sure these are added.
