@@ -2,17 +2,13 @@
 from astropy.io import fits
 from astropy import wcs
 import numpy as np
-from astropy import units
-from astropy.coordinates import SkyCoord
-from astropy.table import Table, vstack
-from astropy.coordinates import FK5
 import matplotlib.pyplot as plt
 import spt3g_detect.dtools as du
 import os
 
 if __name__ == "__main__":
 
-    #plot = False
+    # plot = False
     plot = True
     nsigma = 3.5
     npixels = 20
@@ -45,18 +41,14 @@ if __name__ == "__main__":
         data = (data_090*wgt_090 + data_150*wgt_150)/(wgt_090+wgt_150)
         wgt = (wgt_090+wgt_150)
 
-
         # Estimate the 2D rms
         bkg = du.compute_rms2D(data, sigmaclip=None)
         im1 = plt.imshow(bkg.background, origin='lower', cmap='Greys_r')
         plt.colorbar(im1)
         plt.show()
 
-
         t = np.mean(bkg.background)
         print(t)
-
-        #exit()
 
         # data = data_090
         # wgt = wgt_090

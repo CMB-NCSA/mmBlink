@@ -66,8 +66,8 @@ if __name__ == "__main__":
 
     # Example 1, find all positions
     stacked_centroids = du.find_unique_centroids(d3w.cat, separation=args.max_sep, plot=args.plot)
-    #print("stacked_centroids:")
-    #print(stacked_centroids)
+    # print("stacked_centroids:")
+    # print(stacked_centroids)
     print(f"Total time: {du.elapsed_time(t0)}")
     exit()
 

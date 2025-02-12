@@ -124,15 +124,15 @@ class detect_3gworker:
         else:
             self.logger.info(f"Detected list of [{self.nfiles}] files")
 
-    def load_g3frames(self, g3filename, k):
+    def load_g3frames(self, filename, k):
         """Read in the data and metadata in a g3frame"""
         t0 = time.time()
-        self.logger.info(f"Opening file: {g3filename}")
+        self.logger.info(f"Opening file: {filename}")
         self.logger.info(f"Doing: {k}/{self.nfiles} files")
 
         frames = []
         metadata_extracted = False
-        for frame in core.G3File(g3filename):
+        for frame in core.G3File(filename):
             # Extract ObservationID and field (SourceName)
             if frame.type == core.G3FrameType.Observation:
                 obsID = frame['ObservationID']
@@ -162,20 +162,30 @@ class detect_3gworker:
             if frame.type != core.G3FrameType.Map:
                 continue
 
+            band = frame['Id']
+            if band not in self.config.bands:
+                self.logger.info(f"Skipping file: {filename}, not in --bands {self.config.bands}")
+                continue
+
             if 'ObservationID' not in frame:
                 self.logger.info(f"Setting ObservationID to: {obsID}")
                 frame['ObservationID'] = obsID
             if 'SourceName' not in frame:
                 self.logger.info(f"Setting SourceName to: {SourceName}")
                 frame['SourceName'] = SourceName
-
-        self.logger.info(f"Total metadata time: {elapsed_time(t0)} for: {g3filename}")
+            frames.append(frame)
+        self.logger.info(f"Total metadata time: {elapsed_time(t0)} for: {filename}")
         return frames
 
     def load_fits_map(self, filename):
         # Get header/extensions/hdu
         t0 = time.time()
         header, hdunum = get_headers_hdus(filename)
+        band = header['SCI']['BAND']
+        if band not in self.config.bands:
+            self.logger.info(f"Skipping file: {filename}, not in --bands {self.config.bands}")
+            return []
+
         key = f"{header['SCI']['OBSID']}_{header['SCI']['BAND']}"
         self.logger.info(f"Setting key as: {key}")
         self.logger.debug(f"Done Getting header, hdus: {elapsed_time(t0)}")
@@ -188,10 +198,10 @@ class detect_3gworker:
         ifits = fitsio.FITS(filename, 'r')
         self.logger.debug(f"Done loading fitsio.FITS({filename}): {elapsed_time(t0)}")
         self.logger.debug("Reading SCI HDU")
+        self.header[key] = header['SCI']
         self.flux[key] = ifits[HDU_SCI].read()
         self.logger.debug("Reading WGT HDU")
         self.flux_wgt[key] = ifits[HDU_WGT].read()
-        self.header[key] = header['SCI']
         ifits.close()
         self.logger.debug("Done Reading")
         self.flux_mask[key] = np.where(self.flux_wgt[key] != 0, int(1), 0)
@@ -285,11 +295,16 @@ class detect_3gworker:
             del self.cat[key]
             del self.segm[key]
         else:
+
+            # Add metadata to the catalog
+            self.cat[key].meta['band'] = self.header[key]['BAND']
+            self.cat[key].meta['obsID'] = self.header[key]['OBSID']
+            self.cat[key].meta['field'] = self.header[key]['FIELD']
             # Here is a good place to plot detections -- experimental
             self.logger.info(f"Writing thumbnails for {key}")
             self.write_thumbnails_fitsio(key)
             catname = f"{key}.cat"
-            ascii.write(self.cat[key]['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
+            ascii.write(self.cat[key]['label', 'xcentroid', 'ycentroid', 'sky_centroid', 'sky_centroid_dms',
                         'kron_flux', 'kron_fluxerr', 'max_value', 'elongation', 'ellipticity', 'area'],
                         catname, overwrite=True, format='fixed_width')
             self.logger.info(f"Wrote catalog to: {catname}")
@@ -299,7 +314,6 @@ class detect_3gworker:
             if obsID not in self.bands:
                 self.bands[obsID] = []
             self.bands[obsID].append(band)
-
         return key
 
     def add_scan_column_to_cat(self):
@@ -338,12 +352,8 @@ class detect_3gworker:
 
         for key in keys:
             # Make sure we match the bands requested
-            band = self.header[key]['BAND']
-            if band not in self.config.bands:
-                self.logger.info(f"Skipping {key}, not in --bands {self.config.bands}")
-            else:
-                self.logger.info(f"Running detection for {key}")
-                self.detect_with_photutils_key(key)
+            self.logger.info(f"Running detection for {key}")
+            self.detect_with_photutils_key(key)
         self.logger.info(f"Completed: {k}/{self.nfiles} files")
         self.logger.info(f"Total time: {elapsed_time(t0)} for: {filename}")
 
@@ -420,11 +430,20 @@ class detect_3gworker:
             k += 1
 
     def match_dual_bands(self):
-        print("Hello")
+
+        if len(self.config.bands) != 2:
+            self.logger.info(f"Not enough bands: {self.config.bands} to run dual match")
+            return
+        self.matched_cat = {}
         for obsID in self.bands.keys():
             self.bands[obsID].sort()
             if self.bands[obsID] == self.config.bands:
                 self.logger.debug(f"Will atempt match for {obsID}, bands: {self.bands[obsID]}")
+                key1 = f"{obsID}_{self.bands[obsID][0]}"
+                key2 = f"{obsID}_{self.bands[obsID][1]}"
+                labelID = f"{obsID}_{self.bands[obsID][0]}_{self.bands[obsID][1]}"
+                self.logger.info(f"Doing dual band match {key1} vs {key2}")
+                self.matched_cat[obsID] = find_dual_detections(self.cat[key1], self.cat[key2], labelID)
             else:
                 self.logger.debug(f"No dual match for {obsID}, bands: {self.bands[obsID]} ")
 
@@ -575,6 +594,83 @@ def chunker(seq, size):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 
+def find_dual_detections(t1, t2, labelID, separation=20, plot=False):
+    # Find unique centroids betwen two catalogs
+    # This is a shorter version of the function find_repeating_sources()
+    logger = LOGGER
+    max_sep = separation*u.arcsec
+    stacked_centroids = None
+
+    cat1 = t1['sky_centroid']
+    cat2 = t2['sky_centroid']
+    logger.debug(f"Dual band match for: {labelID}")
+    logger.debug(f"N in cat1: {len(cat1)} cat2: {len(cat2)}")
+
+    # Find matching objects to avoid duplicates
+    idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
+
+    # Proceed only if we have matches
+    if len(idxcat1) == 0:
+        logger.info(f"*** No matches for: {labelID} ***")
+        return None
+
+    # Get the mean centroid from the matched catalogs
+    xx_sky = np.array([t1[idxcat1]['sky_centroid'].ra.data, t2[idxcat2]['sky_centroid'].ra.data])
+    yy_sky = np.array([t1[idxcat1]['sky_centroid'].dec.data, t2[idxcat2]['sky_centroid'].dec.data])
+    xx_pix = np.array([t1[idxcat1]['xcentroid'].data, t2[idxcat2]['xcentroid'].data])
+    yy_pix = np.array([t1[idxcat1]['ycentroid'].data, t2[idxcat2]['ycentroid'].data])
+    # Get the average positions
+    xc_sky = np.mean(xx_sky, axis=0)
+    yc_sky = np.mean(yy_sky, axis=0)
+    xc_pix = np.mean(xx_pix, axis=0)
+    yc_pix = np.mean(yy_pix, axis=0)
+    ncoords = [2]*len(xc_sky)
+    tblidx = np.arange(len(xc_sky)) + 1
+
+    # Get the ids with max value
+    value_max = np.array([t1[idxcat1]['max_value'], t2[idxcat2]['max_value']])
+    scan_value = np.array([t1[idxcat1]['scan'], t2[idxcat2]['scan']])
+    value_max = value_max.max(axis=0)
+    idmax = value_max.argmax(axis=0)
+    scan_max = scan_value.T[0][idmax]
+
+    # We based our table on t1 and update with (some) averages with positions
+    stacked_centroids = t1
+    # Before Update
+    logger.debug("Before Update")
+    t = stacked_centroids['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
+                          'scan', 'scan_max', 'max_value',
+                          'eccentricity', 'elongation', 'ellipticity', 'area']
+    logger.debug(f"\n{t}\n")
+    # Update centroids with averages
+    # Create a Skycoord object
+    coords = SkyCoord(xc_sky, yc_sky, frame=FK5, unit='deg')
+    stacked_centroids['index'] = tblidx
+    stacked_centroids['sky_centroid'] = coords
+    stacked_centroids['xcentroid'] = xc_pix
+    stacked_centroids['ycentroid'] = yc_pix
+    stacked_centroids['ncoords'] = ncoords
+    stacked_centroids['scan_max'] = scan_max
+    stacked_centroids['max_value'] = value_max
+    stacked_centroids['max_value'].info.format = '.5f'
+    stacked_centroids['xcentroid'].info.format = '.2f'
+    stacked_centroids['ycentroid'].info.format = '.2f'
+    stacked_centroids['segment_flux'].info.format = '.1f'
+    stacked_centroids['segment_fluxerr'].info.format = '.1f'
+    stacked_centroids['kron_flux'].info.format = '.1f'
+    stacked_centroids['kron_fluxerr'].info.format = '.1f'
+    stacked_centroids['sky_centroid_dms'] = stacked_centroids['sky_centroid'].to_string('hmsdms', precision=0)
+
+    logger.debug("After Update")
+    logger.debug("#### stacked_centroids\n")
+    t = stacked_centroids['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
+                          'scan', 'scan_max', 'max_value', 'ncoords',
+                          'eccentricity', 'elongation', 'ellipticity', 'area']
+    logger.debug(f"\n{t}\n")
+
+    return stacked_centroids
+
+
 def find_unique_centroids(table_centroids, separation=20, plot=False):
     # Find unique centroids
     logger = LOGGER
@@ -600,7 +696,6 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
             t1 = stacked_centroids
         cat2 = table_centroids[label2]['sky_centroid']
         t2 = table_centroids[label2]
-
 
         # Find matching objects to avoid duplicates
         idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
@@ -806,7 +901,7 @@ def find_repeating_sources(cat, separation=20, plot=False, outdir=None):
     return table_centroids
 
 
-def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
+def stack_cols_lists(c1, c2, ix1, ix2, pad=False, noNew=False):
 
     """
     Custom function to stack two one-dimensional columns containing lists
@@ -855,6 +950,10 @@ def stack_cols_lists(c1, c2, ix1, ix2, pad=False):
         i = ix1[k]
         j = ix2[k]
         newlist[i].append(c2[j])
+
+    # If we only want the ones matches (not adding new objects, we stop here)
+    if noNew:
+        return newlist
 
     # Step 2, we want to append new elememts in c2 to existing c1
     LOGGER.debug(f"ixnew1: {ixnew1}")
@@ -997,7 +1096,6 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
               'kron_flux', 'kron_fluxerr', 'max_value',
               'eccentricity', 'elongation', 'ellipticity', 'area'])
-
     if plot:
         t1 = time.time()
         if rms2D:
