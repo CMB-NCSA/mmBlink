@@ -56,9 +56,33 @@ BASEDIR_OUTNAME = "{outdir}/{objID}"
 
 class detect_3gworker:
 
+    """
+    A class to run and manage transient detections on SPT (South Pole Telescope) files/frames.
+
+    This class provides functionality to initialize the worker with necessary configurations,
+    set up logging, prepare resources, and verify input files before starting the transient detection process.
+
+    Attributes:
+    config (types.SimpleNamespace): Configuration object containing input keys.
+    logger (logging.Logger): Logger instance used for logging throughout the class methods.
+    """
+
     """ A Class to run and manage Transient detections on SPT files/frames"""
 
     def __init__(self, **keys):
+        """
+        Initializes the detect_3gworker class with the provided configuration keys.
+        This method sets up the configuration, logging, prepares necessary resources,
+        and checks the input files to ensure that everything is in place for the transient detection.
+
+        Parameters:
+        **keys (dict): A variable number of keyword arguments representing configuration settings.
+
+        Returns: None
+        Raises:
+        - FileNotFoundError: If any input files are missing during the file check.
+        - KeyError: If a required configuration key is missing.
+        """
 
         # Load the configurarion
         self.config = types.SimpleNamespace(**keys)
@@ -74,7 +98,28 @@ class detect_3gworker:
         self.check_input_files()
 
     def prepare(self):
-        """Intit some functions"""
+        """
+        Initializes necessary variables and prepares the environment for transient detection.
+
+        This method performs several tasks to prepare for running transient detection, including:
+        - Determining the number of processors (NP) to use based on the configuration.
+        - Creating necessary output directories if they do not exist.
+        - Initializing dictionaries to store data, using manager dictionaries for multiprocessing when applicable.
+
+        Specifically, it:
+        - Retrieves the number of processors (`NP`) based on the configuration and adjusts the setup accordingly.
+        - Creates an output directory (`outdir`) for storing results.
+        - Initializes shared data structures (such as dictionaries and lists) for managing data in a multiprocessing
+        environment.
+          - If `NP > 1` (multiprocessing), it uses `mp.Manager()` to create shared dictionaries and lists for parallel
+            processing.
+          - Otherwise, it uses regular Python dictionaries and lists for single-threaded execution.
+
+        Raises:
+        - FileNotFoundError: If the output directory cannot be created.
+        - OSError: If there are issues during multiprocessing setup or directory creation.
+        """
+
         # Get the number of processors to use
         self.NP = get_NP(self.config.np)
         create_dir(self.config.outdir)
@@ -104,7 +149,15 @@ class detect_3gworker:
             self.files = {}
 
     def setup_logging(self):
-        """ Simple logger that uses configure_logger() """
+        """
+        Sets up the logging configuration using `create_logger` and logs key info.
+        Configures logging level, format, and other related settings based on the
+        configuration object. Logs the start of logging and the version of the
+        `spt3g_detect` package.
+
+        Raises:
+        - ValueError: If the logger configuration is invalid or incomplete.
+        """
 
         # Create the logger
         if self.logger is None:
@@ -664,8 +717,19 @@ def remove_files(filelist):
 
 
 def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
+
     """
-    Configure an existing logger
+    Configure an existing logger with specified settings.
+    Sets the format, logging level, and handlers for the given logger.
+    If a logfile is provided, logs are written to both the console and the file
+    with rotation. If no log format or date format is provided, default values are used.
+
+    Parameters:
+    - logger (logging.Logger): The logger to configure.
+    - logfile (str, optional): Path to the log file. If `None`, logs to the console.
+    - level (int): Logging level (e.g., `logging.INFO`, `logging.DEBUG`).
+    - log_format (str, optional): Log message format (default is detailed format with function name).
+    - log_format_date (str, optional): Date format for logs (default is `'%Y-%m-%d %H:%M:%S'`).
     """
     # Define formats
     if log_format:
@@ -705,8 +769,25 @@ def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None
 
 def create_logger(logger=None, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
     """
-    Simple logger that uses configure_logger()
+    Configures and returns a logger with specified settings.
+    Sets up logging based on provided level, format, and output file. Can be used
+    for both `setup_logging` and other components.
+
+    Parameters:
+    - logger (logging.Logger, optional): The logger to configure. If `None`, a new logger
+      is created.
+    - logfile (str, optional): Path to the log file. If `None`, logs to the console.
+    - level (int): Logging level (e.g., `logging.INFO`, `logging.DEBUG`).
+    - log_format (str, optional): Format for log messages (e.g., `'%(asctime)s - %(message)s'`).
+    - log_format_date (str, optional): Date format for logs (e.g., `'%Y-%m-%d %H:%M:%S'`).
+
+    Returns:
+    logging.Logger: The configured logger instance.
+
+    Raises:
+    - ValueError: If the log level or format is invalid.
     """
+
     if logger is None:
         logger = logging.getLogger(__name__)
     configure_logger(logger, logfile=logfile, level=level,
@@ -714,23 +795,25 @@ def create_logger(logger=None, logfile=None, level=logging.NOTSET, log_format=No
     logging.basicConfig(handlers=logger.handlers, level=level)
     logger.propagate = False
     logger.info(f"Logging Started at level:{level}")
-    # logger.info(f"Running spt3g_ingest version: {spt3g_detect.__version__}")
     return logger
 
 
 def elapsed_time(t1, verb=False):
     """
-    Returns the time between t1 and the current time now
-    I can can also print the formatted elapsed time.
-    ----------
-    t1: float
-        The initial time (in seconds)
-    verb: bool, optional
-        Optionally print the formatted elapsed time
-    returns
-    -------
-    stime: float
-        The elapsed time in seconds since t1
+    Returns the time elapsed between t1 and the current time.
+
+    Optionally, prints the formatted elapsed time.
+
+    Parameters:
+    - t1 (float): The initial time (in seconds).
+    - verb (bool, optional): If `True`, prints the formatted elapsed time. Default is `False`.
+
+    Returns:
+    - str: The elapsed time as a string in the format "Xm XX.XXs", where X is the minutes and seconds.
+
+    Example:
+    >>> elapsed_time(1627387200)
+    '5m 12.34s'
     """
     t2 = time.time()
     stime = "%dm %2.2fs" % (int((t2-t1)/60.), (t2-t1) - 60*int((t2-t1)/60.))
@@ -740,8 +823,18 @@ def elapsed_time(t1, verb=False):
 
 
 def get_NP(MP):
-    """ Get the number of processors in the machine
-    if MP == 0, use all available processor
+    """
+    Returns the number of processors to use.
+    If `MP` is 0, uses all available processors on the machine.
+
+    Parameters:
+    - MP (int): The number of processors to use. If 0, all available processors are used.
+
+    Returns:
+    - int: The number of processors (NP).
+
+    Raises:
+    ValueError: If `MP` is not an integer.
     """
     # For it to be a integer
     MP = int(MP)
@@ -755,7 +848,18 @@ def get_NP(MP):
 
 
 def create_dir(dirname):
-    "Safely attempt to create a folder"
+    """
+    Safely attempts to create a directory.
+
+    If the directory does not exist, it is created with permissions `0o755`. If there is an
+    error during directory creation, a warning is logged.
+
+    Parameters:
+    - dirname (str): The path to the directory to create.
+
+    Returns:
+     None
+    """
     if not os.path.isdir(dirname):
         LOGGER.info(f"Creating directory: {dirname}")
         try:
@@ -766,17 +870,69 @@ def create_dir(dirname):
 
 
 def chunker(seq, size):
-    "Chunk a sequence in chunks of a given size"
+    """
+    Splits a sequence into chunks of a specified size.
+
+    Yields chunks of the sequence, each with the specified size.
+
+    Parameters:
+    - seq (iterable): The sequence to chunk (e.g., list, tuple, etc.).
+    - size (int): The size of each chunk.
+
+    Returns:
+    - generator: A generator yielding chunks of the sequence.
+
+    Example:
+    >>> list(chunker([1, 2, 3, 4, 5], 2))
+    [[1, 2], [3, 4], [5]]
+    """
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 
 def find_dual_detections(t1, t2, separation=20, plot=False):
-    # Find unique centroids betwen two catalogs
-    # This is a shorter version of the function find_repeating_sources()
+    """
+    Identifies matching sources between two catalogs (dual band match) based on their sky coordinates.
+    The function compares two catalogs of detected sources and identifies matching sources within a given
+    separation threshold. It then returns a catalog with updated centroid information, including both
+    the average positions and maximum flux values for matched sources.
+
+    This function performs the following steps:
+    1. Ensures that both catalogs have the same observation ID.
+    2. Finds matching objects based on sky coordinates, using a separation threshold.
+    3. Computes the average positions (both in sky and pixel coordinates) for matched sources.
+    4. Updates the centroid catalog with new position information and additional source properties
+       (e.g., max flux, eccentricity).
+    5. Logs the update process with debugging information.
+
+    Parameters:
+    - t1 (Table): The first catalog containing detected sources.
+    - t2 (Table): The second catalog containing detected sources.
+    - separation (float, optional): The maximum separation (in arcseconds) to consider a match between sources.
+      Default is 20 arcseconds.
+    - plot (bool, optional): If `True`, generate a plot for visualizing the matched sources (this feature is not
+      implemented in the function).
+
+    Returns:
+    - Table: A catalog with updated centroid information, which includes the following columns:
+      - `sky_centroid`: Sky coordinates of the matched sources (in FK5 frame).
+      - `xcentroid`: Pixel coordinates of the matched sources.
+      - `ycentroid`: Pixel coordinates of the matched sources.
+      - `ncoords`: Number of coordinates used for averaging (always 2 for dual-band matches).
+      - `obs_max`: Observation ID corresponding to the maximum flux for each source.
+      - `max_value`: Maximum flux value for each matched source.
+      - `sky_centroid_dms`: Sky coordinates in HMS/DMS format.
+      - Additional columns for source properties, such as `eccentricity`, `elongation`, `ellipticity`, and `area`.
+
+    Raises:
+    - ValueError: If the observation IDs in the two catalogs do not match.
+
+    Example:
+    >>> find_dual_detections(catalog1, catalog2, separation=15)
+    """
     logger = LOGGER
     max_sep = separation*u.arcsec
     stacked_centroids = None
-    # Make sure that we have the same obsID
+    # Ensure both catalogs have the same obsID
     if t1.meta['obsID'] != t2.meta['obsID']:
         raise ValueError("values for obsID are not the same")
 
@@ -789,7 +945,7 @@ def find_dual_detections(t1, t2, separation=20, plot=False):
     logger.debug(f"Dual band match for: {labelID}")
     logger.debug(f"N in cat1: {len(cat1)} cat2: {len(cat2)}")
 
-    # Find matching objects to avoid duplicates
+    # Find matching objects
     idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
 
     # Proceed only if we have matches, otherwise return None
@@ -797,7 +953,7 @@ def find_dual_detections(t1, t2, separation=20, plot=False):
         logger.info(f"*** No matches for: {labelID} ***")
         return None
 
-    # Get the mean centroid from the matched catalogs
+    # Concatenate matched positions
     xx_sky = np.array([t1[idxcat1]['sky_centroid'].ra.data, t2[idxcat2]['sky_centroid'].ra.data])
     yy_sky = np.array([t1[idxcat1]['sky_centroid'].dec.data, t2[idxcat2]['sky_centroid'].dec.data])
     xx_pix = np.array([t1[idxcat1]['xcentroid'].data, t2[idxcat2]['xcentroid'].data])
@@ -859,7 +1015,25 @@ def find_dual_detections(t1, t2, separation=20, plot=False):
 
 
 def find_unique_centroids(table_centroids, separation=20, plot=False):
-    # Find unique centroids
+    """
+    Finds unique centroids between multiple catalogs by matching objects within a given
+    separation threshold and stacking the resulting centroid information.
+
+    Parameters:
+    - table_centroids (dict): Dictionary where the keys are catalog labels and the values
+                               are the catalogs containing the centroid data.
+    - separation (float, optional): Maximum separation (arcseconds) to consider a match.
+                                    Default is 20.
+    - plot (bool, optional): If `True`, generate a plot (not implemented here). Default is `False`.
+
+    Returns:
+    - Table: A catalog with updated centroid information and matched sources, stacked across
+             all catalogs.
+    Notes:
+    - The function operates on multiple catalogs provided in the `table_centroids` dictionary.
+      It stacks matched centroids, averages their positions, and updates the catalog with the
+      resulting information. If objects are unmatched, they are appended to the stacked catalog.
+    """
     logger = LOGGER
     max_sep = separation*u.arcsec
     stacked_centroids = None
@@ -973,18 +1147,30 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
 
 def find_repeating_sources(cat, separation=20, plot=False, outdir=None):
     """
-    Match sources in a list of catalogs that show up in at least two
-    consecutive catalogs
+    Matches sources in consecutive catalogs that appear in at least two consecutive catalogs,
+    with a specified separation threshold, and calculates the mean centroid of matched sources.
 
-    inputs:
-       - cat: list of catalogs in astropy Table format
-    options:
-       - separation: maximum separation in arcsec
-       - plot: plot positions
+    Parameters:
+    - cat (dict): Dictionary containing catalogs in astropy Table format, with each key
+                  corresponding to a catalog of sources.
+    - separation (float, optional): Maximum separation (arcseconds) to consider a match.
+                                    Default is 20.
+    - plot (bool, optional): If `True`, generates plots for the matched sources and saves them
+                              in the specified output directory. Default is `False`.
+    - outdir (str, optional): Directory to save the plot if `plot=True`. Default is `None`.
 
-     output:
-       - table_centroids: list of astropy Table with match postions
+    Returns:
+    - dict: A dictionary where the keys are concatenated labels of the matched catalogs
+            (e.g., 'scan1_scan2') and the values are astropy Tables with matched centroid positions
+            and other related information.
+
+    Notes:
+    - The function compares consecutive catalogs and finds sources with positions that match
+      within the specified separation threshold. It calculates the mean centroid for each matched
+      pair of catalogs, storing the results in a dictionary. If `plot` is enabled, plots are generated
+      showing the matched sources and their positions.
     """
+
     max_sep = separation*u.arcsec
     table_centroids = {}  # Table with centroids
     scans = list(cat.keys())
@@ -1004,11 +1190,6 @@ def find_repeating_sources(cat, separation=20, plot=False, outdir=None):
         logger.info(f"Doing {scan1} vs {scan2}")
         logger.info(f"N in cat1: {n1} cat2: {n2}")
 
-        # Altenative match method using match_to_catalog_sky
-        # idx1, sep, _ = cat1.match_to_catalog_sky(cat2)
-        # idx1_matched = sep < max_sep
-        # print(cat[scan1][idx1_matched]['label', 'xcentroid', 'ycentroid',
-        #                                'sky_centroid_dms', 'kron_flux', 'kron_fluxerr', 'max_value', 'area'])
         # Match method using search_around_sky
         idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
         logger.info(f"N matches: {len(idxcat1)} -- {len(idxcat2)}")
@@ -1100,17 +1281,34 @@ def find_repeating_sources(cat, separation=20, plot=False, outdir=None):
 def stack_cols_lists(c1, c2, ix1, ix2, pad=False, noNew=False):
 
     """
-    Custom function to stack two one-dimensional columns containing lists
+    Custom function to stack two one-dimensional columns containing lists.
+    The function combines elements from two columns (`c1` and `c2`) based on
+    matching indices (`ix1` and `ix2`) and allows for additional customization
+    such as padding or skipping new elements.
 
-    inputs:
-       - c1: list (or list of lists) or 1D numpy array
-       - c2: list (or list of lists) or 1D numpy array
-       - ix1: list of indicices of c1 that are matched in c2
-       - ix2: list of indicices of c2 that are matched in c1
+    Parameters:
+    - c1 (list or 1D numpy array): The first list (or list of lists) to be processed.
+    - c2 (list or 1D numpy array): The second list (or list of lists) to be processed.
+    - ix1 (list of int): List of indices of `c1` that match with `c2`.
+    - ix2 (list of int): List of indices of `c2` that match with `c1`.
 
-    options:
-       - pad: pad lists that have only one element
+    Options:
+    - pad (bool, optional): If `True`, pads lists with a single element to have two elements.
+      Default is `False`.
+    - noNew (bool, optional): If `True`, prevents the addition of new elements from `c2` to `c1`.
+      Default is `False`.
 
+    Returns:
+    - list: A list where elements of `c1` and `c2` are stacked together based on the matching indices.
+            Each element is guaranteed to be a list, even if it originally wasn't.
+    Raises:
+    - Exception: If the lengths of `ix1` and `ix2` do not match, an exception is raised.
+    - Exception: If `c1` or `c2` cannot be cast to a list.
+
+    Notes:
+    - The function first augments the lists in `c1` with the matching elements from `c2` based on `ix1` and `ix2`.
+    - If `noNew` is `True`, the function stops after augmenting the lists and does not append any new items from `c2`.
+    - If `pad` is `True`, lists with only one element will be padded to contain two identical elements.
     """
 
     # Get elements that are not in c1 but not c2
@@ -1170,6 +1368,29 @@ def stack_cols_lists(c1, c2, ix1, ix2, pad=False, noNew=False):
 
 
 def mean_list_of_list(list, np_array=True):
+    """
+    Compute the mean of each sublist in a list of lists, and optionally return
+    the result as a NumPy array.
+
+    Parameters:
+    - list (list of list-like objects): A list of lists (or arrays) for which the
+      mean of each sublist will be computed.
+    - np_array (bool, optional): If `True`, the result is returned as a NumPy array.
+      If `False`, a list of means is returned. Default is `True`.
+
+    Returns:
+    - list or numpy.ndarray: The mean of each sublist. If `np_array` is `True`,
+      a NumPy array is returned; otherwise, a list is returned.
+
+    Example:
+    >>> mean_list_of_list([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    array([2.0, 5.0, 8.0])
+
+    Notes:
+    - Each sublist in the input list is converted into a NumPy array before
+      computing the mean.
+    - The function will return a single mean value for each sublist.
+    """
     u = [np.array(x).mean() for x in list]
     if np_array:
         u = np.array(u)
@@ -1177,6 +1398,30 @@ def mean_list_of_list(list, np_array=True):
 
 
 def max_list_of_list(list, np_array=True):
+    """
+    Compute the maximum value of each sublist in a list of lists,
+    and optionally return the result as a NumPy array.
+
+    Parameters:
+    - list (list of list-like objects): A list of lists (or arrays) for which
+      the maximum value of each sublist will be computed.
+    - np_array (bool, optional): If `True`, the result is returned as a NumPy array.
+      If `False`, a list of maximum values is returned. Default is `True`.
+
+    Returns:
+    - list or numpy.ndarray: The maximum value of each sublist. If `np_array` is `True`,
+      a NumPy array is returned; otherwise, a list is returned.
+
+    Example:
+    >>> max_list_of_list([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    array([3, 6, 9])
+
+    Notes:
+    - Each sublist in the input list is converted into a NumPy array before computing
+      the maximum value.
+    - The function will return the maximum value for each sublist.
+    """
+
     max_val = [np.array(x).max() for x in list]
     if np_array:
         max_val = np.array(max_val)
@@ -1186,10 +1431,36 @@ def max_list_of_list(list, np_array=True):
 def compute_rms2D(data, mask=None, box=200, filter_size=(3, 3), sigmaclip=None):
 
     """
-    Compute a 2D map of the rms using photutils.Background2D and
-    photutils.StdBackgroundRMS
-    """
+    Compute a 2D map of the RMS (Root Mean Square) using photutils.Background2D and
+    photutils.StdBackgroundRMS.
 
+    This function estimates the background RMS across the 2D input data, optionally applying
+    a mask, a box size for background estimation, and a sigma clip for outlier rejection.
+
+    Parameters:
+    - data (numpy.ndarray): A 2D array containing the input data (e.g., image or map).
+    - mask (numpy.ndarray, optional): A 2D boolean array of the same shape as `data`, where
+      `True` values indicate masked pixels. If `None`, no masking is applied. Default is `None`.
+    - box (int, optional): The size of the box used to estimate the background. The background
+      is calculated within this box size. Default is 200.
+    - filter_size (tuple of ints, optional): The size of the filter used for smoothing the
+      background estimate. Default is (3, 3).
+    - sigmaclip (float, optional): If specified, values in the input data that deviate by more
+      than `sigmaclip` standard deviations from the mean will be clipped. Default is `None`.
+
+    Returns:
+    - photutils.Background2D: A Background2D object that contains the estimated background
+      and the RMS of the input data.
+
+    Example:
+    >>> rms_map = compute_rms2D(data, mask=mask, box=150, filter_size=(5, 5), sigmaclip=3)
+
+    Notes:
+    - The `sigma_clip` is applied to the background estimation if specified. It helps to reject
+      outliers in the background calculation.
+    - If a mask is provided, the data is masked by replacing the masked areas with `NaN`,
+      which prevents them from affecting the background estimation.
+    """
     # in case we want to clip values
     if sigmaclip:
         sigma_clip = SigmaClip(sigma=sigmaclip)
