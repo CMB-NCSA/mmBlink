@@ -694,30 +694,49 @@ def concatenate_fits(input_files, output_file, id, band):
         LOGGER.info(f"Successfully created {output_file} with {len(input_files) * 2} extensions.")
 
 
-def remove_files(filelist):
+def remove_files(filelist, remove_parents=True):
     """
-    Removes all (FITS) files from the given list of file paths.
+    Removes all (FITS) files from the given list of file paths and optionally deletes
+    their parent directories if they become empty.
 
     Parameters:
-    filelist (list): A list of file paths to FITS files.
+    - filelist (list): A list of file paths to FITS files.
+    - remove_parents (bool): If True, removes parent directories if they become empty.
 
     Returns:
-    None
+    - None
     """
+    parent_dirs = set()  # Track parent directories to check later
+
     for file_path in filelist:
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
                 LOGGER.debug(f"Successfully removed: {file_path}")
+
+                # Collect parent directory path
+                parent_dir = os.path.dirname(file_path)
+                if parent_dir:
+                    parent_dirs.add(parent_dir)
             else:
                 LOGGER.warning(f"File does not exist: {file_path}")
         except Exception as e:
             LOGGER.error(f"Error removing {file_path}: {e}")
-    LOGGER.info("Files were removed")
+
+    # Optionally remove parent directories if they are empty
+    if remove_parents:
+        for parent_dir in parent_dirs:
+            try:
+                if os.path.isdir(parent_dir) and not os.listdir(parent_dir):  # Check if empty
+                    os.rmdir(parent_dir)
+                    LOGGER.info(f"Removed empty directory: {parent_dir}")
+            except Exception as e:
+                LOGGER.error(f"Error removing directory {parent_dir}: {e}")
+
+    LOGGER.info("Files removed" + (", including empty directories" if remove_parents else ""))
 
 
 def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
-
     """
     Configure an existing logger with specified settings.
     Sets the format, logging level, and handlers for the given logger.
