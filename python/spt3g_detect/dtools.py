@@ -729,7 +729,7 @@ def remove_files(filelist, remove_parents=True):
             try:
                 if os.path.isdir(parent_dir) and not os.listdir(parent_dir):  # Check if empty
                     os.rmdir(parent_dir)
-                    LOGGER.info(f"Removed empty directory: {parent_dir}")
+                    LOGGER.debug(f"Removed empty directory: {parent_dir}")
             except Exception as e:
                 LOGGER.error(f"Error removing directory {parent_dir}: {e}")
 
