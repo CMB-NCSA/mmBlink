@@ -27,9 +27,11 @@ from spt3g import sources
 import fitsio
 import copy
 from astropy.wcs import WCS
-from astropy.io import ascii
+# from astropy.io import ascii
 from collections import OrderedDict
 from photutils.utils.exceptions import NoDetectionsWarning
+from spt3g_cutter import cutterlib
+
 import warnings
 # to ignore astropy NoDetectionsWarning
 warnings.filterwarnings("ignore", category=NoDetectionsWarning)
@@ -89,6 +91,7 @@ class detect_3gworker:
             self.header = manager.dict()
             self.obsIDs = manager.list()
             self.bands = manager.dict()
+            self.files = manager.dict()
         else:
             self.flux = {}
             self.flux_wgt = {}
@@ -98,6 +101,7 @@ class detect_3gworker:
             self.header = {}
             self.obsIDs = []
             self.bands = {}
+            self.files = {}
 
     def setup_logging(self):
         """ Simple logger that uses configure_logger() """
@@ -299,18 +303,18 @@ class detect_3gworker:
             del self.cat[key]
             del self.segm[key]
         else:
-            # Add metadata to the catalog
+            # Add metadata to the catalog we just created
             self.cat[key].meta['band'] = self.header[key]['BAND']
             self.cat[key].meta['obsID'] = self.header[key]['OBSID']
             self.cat[key].meta['field'] = self.header[key]['FIELD']
             # Here is a good place to plot detections -- experimental
-            self.logger.info(f"Writing thumbnails for {key}")
-            self.write_thumbnails_fitsio(key)
-            catname = f"{key}.cat"
-            ascii.write(self.cat[key]['label', 'xcentroid', 'ycentroid', 'sky_centroid', 'sky_centroid_dms',
-                        'kron_flux', 'kron_fluxerr', 'max_value', 'elongation', 'ellipticity', 'area'],
-                        catname, overwrite=True, format='fixed_width')
-            self.logger.info(f"Wrote catalog to: {catname}")
+            # self.logger.info(f"Writing thumbnails for {key}")
+            # self.write_thumbnails_fitsio(key)
+            # catname = f"{key}.cat"
+            # ascii.write(self.cat[key]['label', 'xcentroid', 'ycentroid', 'sky_centroid', 'sky_centroid_dms',
+            #             'kron_flux', 'kron_fluxerr', 'max_value', 'elongation', 'ellipticity', 'area'],
+            #             catname, overwrite=True, format='fixed_width')
+            # self.logger.info(f"Wrote catalog to: {catname}")
             # Store the bands for obsID that was catalogued
             band = self.header[key]['BAND']
             obsID = self.header[key]['OBSID']
@@ -360,6 +364,12 @@ class detect_3gworker:
             # Make sure we match the bands requested
             self.logger.info(f"Running detection for {key}")
             self.detect_with_photutils_key(key)
+            # Here we store the files user (per band) to get cutouts later
+            band = self.header[key]['BAND']
+            if band not in self.files.keys():
+                self.files[band] = []
+            self.files[band].append(filename)
+
         self.logger.info(f"Completed: {k}/{self.nfiles} files")
         self.logger.info(f"Total time: {elapsed_time(t0)} for: {filename}")
 
@@ -441,6 +451,7 @@ class detect_3gworker:
             self.logger.info(f"Not enough bands: {self.config.bands} to run dual match")
             return
         self.matched_cat = {}
+
         # Loop over all of the observations
         for obsID in self.bands.keys():
             if self.bands[obsID] == self.config.bands:
@@ -491,6 +502,165 @@ class detect_3gworker:
             ofits.write(thumb_wgt, extname='WGT', header=h_section)
             ofits.close()
             LOGGER.info(f"Done writing {outname}: {elapsed_time(t0)}")
+
+    def run_cutouts(self, cat):
+        """ Run cutouts for a catalog and list of files"""
+
+        # Update file naming convention
+        cutterlib.FITS_OUTNAME = "{outdir}/{objID}_{obsid}_{filter}.{ext}"
+        cutterlib.OBJ_ID = "{prefix}_J{ra}{dec}"
+        cutterlib.BASEDIR_OUTNAME = "{outdir}/{objID}"
+
+        cutout_dict = {}
+        rejected_dict = {}
+        lightcurve_dict = {}
+
+        # Extract ra and dec from cat:
+        ra = cat['sky_centroid'].ra.data
+        dec = cat['sky_centroid'].dec.data
+
+        xsize = 10
+        ysize = 10
+        objID = None
+        prefix = "SPT3G"
+        outdir = self.config.outdir
+        get_lightcurve = True
+        get_uniform_coverage = False
+        no_fits = False
+        stage = False
+        stage_path = '/tmp'
+        stage_prefix = os.path.join(stage_path, 'spt3g_cutter-stage-')
+
+        k = 1
+        Nfiles = len(self.config.files)
+        for band in self.files.keys():
+            self.logger.info(f"Making cutouts for band: {band}")
+            for file in self.files[band]:
+                counter = f"{k}/{Nfiles} files"
+                ar = (file, ra, dec, cutout_dict, rejected_dict, lightcurve_dict)
+                kw = {'xsize': xsize, 'ysize': ysize, 'units': 'arcmin', 'objID': objID,
+                      'prefix': prefix, 'outdir': outdir, 'counter': counter,
+                      'get_lightcurve': get_lightcurve,
+                      'get_uniform_coverage': get_uniform_coverage,
+                      'nofits': no_fits,
+                      'stage': stage,
+                      'stage_prefix': stage_prefix,
+                      'obsid_names': True}
+                names, pos, lc = cutterlib.fitscutter(*ar, **kw)
+                cutout_dict.update(names)
+                rejected_dict.update(pos)
+                lightcurve_dict.update(lc)
+                k += 1
+
+        self.cutout_names = cutout_dict
+        self.lightcurve = lightcurve_dict
+        self.config.id_names = cutterlib.get_id_names(ra, dec, prefix)
+        self.config.obs_dict = cutterlib.get_obs_dictionary(lightcurve_dict)
+        # print(self.config.obs_dict)
+        # print(self.config.id_names)
+
+    def repack_lc(self):
+        "Repack and write lightcurve dictionaty as FITS table"
+        # Update file naming convention
+        cutterlib.FITS_LC_OUTNAME = "{outdir}/lightcurve_{filter}.{ext}"
+        for BAND in self.files.keys():
+            FILETYPE = 'None'
+            ar = (self.lightcurve, BAND, FILETYPE, self.config)
+            cutterlib.repack_lightcurve_band_filetype(*ar)
+
+    def repack_stamps(self):
+        """
+        Repack individual FITS stamp files into a single multiple-HDU FITS file.
+
+        This method iterates over a dictionary of cutout names and their corresponding
+        bands. For each combination of cutout and band, it creates a multiple-HDU FITS
+        file by concatenating the individual FITS files corresponding to that cutout and
+        band. After the files are concatenated, the individual files are removed.
+
+        The following operations are performed for each stamp and band:
+        - A sorted list of input FITS filenames is generated.
+        - The files are concatenated into one multiple-HDU FITS file.
+        - The individual files are removed after concatenation.
+
+        Parameters: None
+        Returns: None
+
+        Raises:
+        - FileNotFoundError: If any of the input FITS files specified in `filenames` do not exist.
+        - OSError: If there are any issues during file operations (e.g., permission issues during removal).
+        """
+
+        for stamp_name in self.cutout_names.keys():
+            for band in self.cutout_names[stamp_name].keys():
+                fitsfile = f"{self.config.outdir}/{stamp_name}_{band}.fits"
+                self.logger.info(f"Combining into: {fitsfile}")
+                filenames = self.cutout_names[stamp_name][band]
+                filenames.sort()
+                concatenate_fits(filenames, fitsfile, stamp_name, band)
+                remove_files(filenames)
+
+
+def concatenate_fits(input_files, output_file, id, band):
+    """
+    Concatenates a list of FITS files into a single multi-HDU FITS file.
+    Each input FITS file has two extensions: SCI (Science) and WGT (Weight).
+
+    Parameters:
+    input_files (list of str): List of input FITS file paths.
+    output_file (str): Path to the output multi-HDU FITS file.
+    id (str): Name of stamp to include in the PRIMARY header.
+    band (str): Band information to include in the PRIMARY header.
+    """
+    # Create a new FITS file for output
+    with fitsio.FITS(output_file, 'rw', clobber=True) as fits_out:
+        # Create PRIMARY header
+        primary_header = {
+            'ID': id,
+            'BAND': band,
+            'NFILES': len(input_files),
+            'COMMENT': 'Concatenated FITS file'
+        }
+        fits_out.write(None, header=primary_header)
+        for idx, infile in enumerate(input_files):
+            with fitsio.FITS(infile, 'r') as fits_in:
+
+                # Auto-discover HDU indices for SCI and WGT extensions
+                sci_hdu = next(i for i, hdu in enumerate(fits_in) if hdu.get_extname() == "SCI")
+                wgt_hdu = next(i for i, hdu in enumerate(fits_in) if hdu.get_extname() == "WGT")
+
+                # Read the SCI extension
+                sci_data = fits_in[sci_hdu].read()
+                sci_header = fits_in[sci_hdu].read_header()
+                fits_out.write(sci_data, header=sci_header, extname=f"SCI_{idx+1}")
+
+                # Read the WGT extension
+                wgt_data = fits_in[wgt_hdu].read()
+                wgt_header = fits_in[wgt_hdu].read_header()
+                fits_out.write(wgt_data, header=wgt_header, extname=f"WGT_{idx+1}")
+
+        LOGGER.info(f"Successfully created {output_file} with {len(input_files) * 2} extensions.")
+
+
+def remove_files(filelist):
+    """
+    Removes all (FITS) files from the given list of file paths.
+
+    Parameters:
+    filelist (list): A list of file paths to FITS files.
+
+    Returns:
+    None
+    """
+    for file_path in filelist:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                LOGGER.debug(f"Successfully removed: {file_path}")
+            else:
+                LOGGER.warning(f"File does not exist: {file_path}")
+        except Exception as e:
+            LOGGER.error(f"Error removing {file_path}: {e}")
+    LOGGER.info("Files were removed")
 
 
 def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):

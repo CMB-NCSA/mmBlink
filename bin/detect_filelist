@@ -77,6 +77,10 @@ if __name__ == "__main__":
         # Example 1, find all positions
         stacked_centroids = du.find_unique_centroids(d3w.cat, separation=args.max_sep, plot=args.plot)
     print(stacked_centroids)
+    d3w.run_cutouts(stacked_centroids)
+    d3w.repack_lc()
+    d3w.repack_stamps()
+
     exit()
 
     # Example 1, find all positions
