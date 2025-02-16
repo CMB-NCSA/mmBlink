@@ -57,14 +57,17 @@ BASEDIR_OUTNAME = "{outdir}/{objID}"
 class detect_3gworker:
 
     """
-    A class to run and manage transient detections on SPT (South Pole Telescope) files/frames.
+    A class to run and manage transient detections on SPT (South Pole Telescope)
+    files/frames.
 
-    This class provides functionality to initialize the worker with necessary configurations,
-    set up logging, prepare resources, and verify input files before starting the transient detection process.
+    This class provides functionality to initialize the worker with necessary
+    configurations, set up logging, prepare resources, and verify input files
+    before starting the transient detection process.
 
     Attributes:
     config (types.SimpleNamespace): Configuration object containing input keys.
-    logger (logging.Logger): Logger instance used for logging throughout the class methods.
+    logger (logging.Logger): Logger instance used for logging throughout the
+    class methods.
     """
 
     """ A Class to run and manage Transient detections on SPT files/frames"""
@@ -73,10 +76,12 @@ class detect_3gworker:
         """
         Initializes the detect_3gworker class with the provided configuration keys.
         This method sets up the configuration, logging, prepares necessary resources,
-        and checks the input files to ensure that everything is in place for the transient detection.
+        and checks the input files to ensure that everything is in place for the
+        transient detection.
 
         Parameters:
-        **keys (dict): A variable number of keyword arguments representing configuration settings.
+        - **keys (dict): A variable number of keyword arguments representing
+          configuration settings.
 
         Returns: None
         Raises:
@@ -99,21 +104,26 @@ class detect_3gworker:
 
     def prepare(self):
         """
-        Initializes necessary variables and prepares the environment for transient detection.
+        Initializes necessary variables and prepares the environment for
+        transient detection.
 
-        This method performs several tasks to prepare for running transient detection, including:
+        This method performs several tasks to prepare for running transient detection,
+        including:
         - Determining the number of processors (NP) to use based on the configuration.
         - Creating necessary output directories if they do not exist.
-        - Initializing dictionaries to store data, using manager dictionaries for multiprocessing when applicable.
+        - Initializing dictionaries to store data, using manager dictionaries for
+          multiprocessing when applicable.
 
         Specifically, it:
-        - Retrieves the number of processors (`NP`) based on the configuration and adjusts the setup accordingly.
+        - Retrieves the number of processors (`NP`) based on the configuration and
+          adjusts the setup accordingly.
         - Creates an output directory (`outdir`) for storing results.
-        - Initializes shared data structures (such as dictionaries and lists) for managing data in a multiprocessing
-        environment.
-          - If `NP > 1` (multiprocessing), it uses `mp.Manager()` to create shared dictionaries and lists for parallel
-            processing.
-          - Otherwise, it uses regular Python dictionaries and lists for single-threaded execution.
+        - Initializes shared data structures (such as dictionaries and lists) for
+          managing data in a multiprocessing environment.
+          - If `NP > 1` (multiprocessing), it uses `mp.Manager()` to create shared
+            dictionaries and lists for parallel processing.
+          - Otherwise, it uses regular Python dictionaries and lists for
+            single-threaded execution.
 
         Raises:
         - FileNotFoundError: If the output directory cannot be created.
@@ -169,7 +179,23 @@ class detect_3gworker:
         self.logger.info(f"Running spt3g_ingest version: {spt3g_detect.__version__}")
 
     def check_input_files(self):
-        " Check if the inputs are a list or a file with a list"
+        """
+        Check if the provided input is a single file containing a list of
+        filenames or a list of individual files.
+
+        - If the input is a single text file, it reads the filenames from the
+          file and updates self.config.files with the list of files.
+        - If the input is already a list of files, it logs the number of files detected.
+
+        Attributes:
+            self.config.files (list): A list of file paths or a single text file
+            containing file paths.
+            self.nfiles (int): The number of files to process, updated based
+            on the input type.
+
+        Returns:
+        None
+        """
         # The number of files to process
         self.nfiles = len(self.config.files)
 
@@ -186,7 +212,31 @@ class detect_3gworker:
             self.logger.info(f"Detected list of [{self.nfiles}] files")
 
     def load_g3frames(self, filename, k):
-        """Read in the data and metadata in a g3frame"""
+        """
+        Load data and metadata from a G3 file and extract relevant observation information.
+
+        This method reads G3 frames from a file, extracts observation metadata
+        (ObservationID and SourceName), and collects the relevant map frames based
+        on the specified frequency bands. If necessary, missing metadata is set
+        using previously extracted values.
+
+        Parameters:
+            filename (str): Path to the G3 file to be loaded.
+             k (int): Index of the current file being processed, used for logging.
+
+        Attributes:
+            self.config.bands (list): List of frequency bands to process (e.g., ['90GHz', '150GHz']).
+            self.config.field (str): Optional field name to verify or substitute for SourceName.
+            self.nfiles (int): Total number of files being processed, used for logging.
+
+        Returns:
+            frames (list): A list of G3 frames containing map data for the specified bands.
+
+        Notes:
+           - Logs warnings if metadata (ObservationID or SourceName) cannot be extracted.
+           - Skips frames not matching the configured frequency bands.
+           - Sets ObservationID and SourceName if they are missing from the frame.
+           """
         t0 = time.time()
         self.logger.info(f"Opening file: {filename}")
         self.logger.info(f"Doing: {k}/{self.nfiles} files")
@@ -239,6 +289,20 @@ class detect_3gworker:
         return frames
 
     def load_fits_map(self, filename):
+        """
+        Load FITS data and metadata from a file.
+
+        Parameters:
+            filename (str): Path to the FITS file.
+
+        Returns:
+            list: Observation key if the file is loaded, or an empty list if skipped.
+        Notes:
+           - Skips files if their band is not in the configured list of bands.
+           - Reads SCI and WGT HDUs, storing flux, weight, and mask arrays.
+           - Adds observation ID to the list of loaded observation IDs.
+        """
+
         # Get header/extensions/hdu
         t0 = time.time()
         header, hdunum = get_headers_hdus(filename)
@@ -278,6 +342,22 @@ class detect_3gworker:
         return [key]
 
     def load_g3frame_map(self, frame):
+        """
+        Load a G3 frame map into memory.
+
+        Parameters:
+            frame (core.G3Frame): The G3 frame containing map data.
+
+        Returns:
+            str: The observation key for the loaded frame.
+
+        Notes:
+            - Extracts metadata (ObservationID, SourceName, Band).
+            - Creates a FITS header with WCS info and adds OBSID, FIELD, and BAND.
+            - Removes weights and converts flux and weight maps to mJy.
+            - Creates a flux mask based on the frame mask.
+            - Adds observation ID to the list of loaded IDs.
+        """
         # Get the metadata
         t0 = time.time()
         obsID = frame['ObservationID']
@@ -321,7 +401,21 @@ class detect_3gworker:
         return key
 
     def detect_with_photutils_key(self, key):
+        """
+        Detect sources in the map for a given key using Photutils.
 
+        Parameters:
+            key (str): The observation key for the data to process.
+
+        Returns:
+            str: The observation key if detections are made, else None.
+
+        Notes:
+            - Uses flux, weight, and mask data for detection.
+            - Applies a source detection algorithm via Photutils.
+            - Removes sources near known cataloged objects for the field.
+            - Updates catalog metadata and tracks bands per observation ID.
+        """
         data = self.flux[key]
         wgt = self.flux_wgt[key]
         mask = self.flux_mask[key]
@@ -427,7 +521,9 @@ class detect_3gworker:
         self.logger.info(f"Total time: {elapsed_time(t0)} for: {filename}")
 
     def run_detection_files(self):
-        " Run all g3files"
+        """
+        Run detection on all g3 files, using multiprocessing if NP > 1.
+        """
         if self.NP > 1:
             self.logger.info("Running detection jobs with multiprocessing")
             self.run_detection_async()
@@ -440,7 +536,9 @@ class detect_3gworker:
         self.add_obs_column_to_cat()
 
     def run_detection_mp(self):
-        " Run g3files using multiprocessing.Process in chunks of NP"
+        """
+        Run g3 files using multiprocessing.Process in chunks of NP.
+        """
         k = 1
         jobs = []
         self.logger.info(f"Will use {self.NP} processors")
@@ -469,8 +567,15 @@ class detect_3gworker:
         p.terminate()
 
     def run_detection_async(self):
+        """
+        Run g3 files using multiprocessing.apply_async for parallel processing.
+
+        This method spawns a pool of processes to asynchronously apply the
+        run_detection_file function to each g3 file in the configuration.
+        It uses the 'spawn' context to avoid issues with SPT3G's pipe().
+        After processing, it converts DictProxy objects into regular dictionaries.
+        """
         # It might have memory issues with spt3g pipe()
-        " Run g3files using multiprocessing.apply_async"
         with mp.get_context('spawn').Pool() as p:
             p = mp.Pool(processes=self.NP, maxtasksperchild=1)
             self.logger.info(f"Will use {self.NP} processors")
@@ -492,14 +597,30 @@ class detect_3gworker:
         p.terminate()
 
     def run_detection_serial(self):
-        " Run all g3files serialy "
+        """
+        Run all g3 files serially.
+
+        This method processes each g3 file in the configuration sequentially
+        by calling run_detection_file for each file, one after another.
+        """
         k = 1
         for g3file in self.config.files:
             self.run_detection_file(g3file, k)
             k += 1
 
     def match_dual_bands(self):
+        """
+        Perform dual band matching for observations with two bands.
 
+        This method checks if the configuration has exactly two bands and then attempts
+        to find dual detections between them for each observation. If a matching pair
+        of bands is found for an observation, it calls find_dual_detections to match
+        the catalog entries. The matched catalogs are stored in self.matched_cat.
+
+        Returns:
+            dict: A dictionary where the keys are observation IDs (obsID) and the values
+                  are the matched catalog entries for the dual bands.
+        """
         if len(self.config.bands) != 2:
             self.logger.info(f"Not enough bands: {self.config.bands} to run dual match")
             return
@@ -518,8 +639,23 @@ class detect_3gworker:
         return self.matched_cat
 
     def write_thumbnails_fitsio(self, key, size=60, clobber=True):
-        """Plot the detections as thumbnails"""
+        """
+        Create and write thumbnail FITS files for detected objects.
 
+        This method extracts the flux and weight data for the given catalog key, then
+        generates thumbnails for each detected object. It uses the object’s centroid
+        to crop the data around the detection and writes the cropped images (flux and
+        weight) to FITS files. The output file is named based on the object’s position
+        (RA, DEC) and other metadata such as the band and observation ID.
+
+        Args:
+            key (str): The key identifying the catalog to use for the detection.
+            size (int, optional): The size of the thumbnail (default is 60).
+            clobber (bool, optional): Whether to overwrite existing files (default is True).
+
+        Returns:
+            None
+        """
         cat = self.cat[key]
         data = self.flux[key]
         wgt = self.flux_wgt[key]
@@ -1671,7 +1807,23 @@ def plot_segmentation(ax2, segm, cat, gmask=None):
 
 def plot_distribution(ax, data, mean, sigma, nsigma=3):
     """
-    Function to display distribution of data as 1D
+    Plot the 1D distribution of data and fit a normal distribution curve.
+
+    This function visualizes the distribution of the given data and fits a
+    Gaussian (normal) distribution to it. The plot includes the data histogram,
+    the fitted curve, and dashed lines representing the specified number of
+    standard deviations (nsigma) from the mean.
+
+    Args:
+        ax (matplotlib.axes.Axes): The axes on which to plot the histogram and fitted curve.
+        data (array-like): The data to be plotted. It will be flattened if necessary.
+        mean (float): The mean value of the distribution.
+        sigma (float): The standard deviation of the distribution.
+        nsigma (int, optional): The number of standard deviations to plot the dashed lines.
+            Default is 3.
+
+    Example:
+        >>> plot_distribution(ax, data, mean, sigma)
     """
     # Flatten the data if needed
     if data.ndim != 1:
@@ -1707,11 +1859,21 @@ def plot_distribution(ax, data, mean, sigma, nsigma=3):
 
 def get_sources_catalog(field):
     """
-    Function to read the sources catalog for a field.
-    inputs:
-      - field: field name (str)
-    output:
-      - pscat: SkyCoord astropy object
+    Retrieve the sources catalog for a given field.
+
+    This function reads the point source catalog for the specified field and
+    returns an Astropy `SkyCoord` object containing the celestial coordinates
+    of the sources.
+
+    Args:
+        field (str): The name of the field for which the sources catalog is to be retrieved.
+
+    Returns:
+        astropy.coordinates.SkyCoord: A SkyCoord object containing the RA and Dec coordinates
+            of the sources in the catalog.
+
+    Example:
+        >>> sources_catalog = get_sources_catalog('field_name')
     """
     # Get the catalog with masked sources
     point_source_file = sources.get_field_source_list(field, analysis="lightcurve")
@@ -1727,13 +1889,24 @@ def get_sources_catalog(field):
 
 def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
     """
-    Funtion to remove objects from astropy catalog near sources catalog
-    inputs:
-      - field: field name (str)
-      - cat: astropy catalog
-      - max_dist: maximum separation distancen (using 5 arcmin)
-    output:
-      - cat: input astropy catalog without matched sources
+    Remove objects from an Astropy catalog that are near sources in a sources catalog.
+
+    This function compares the objects in the provided catalog (`cat`) to a
+    sources catalog for a given field. Objects within a specified angular distance
+    (`max_dist`) from any source in the sources catalog will be removed.
+
+    Args:
+        cat (astropy.table.Table): The Astropy catalog of objects to be filtered.
+        field (str): The field name to retrieve the sources catalog for matching.
+        max_dist (astropy.units.Quantity, optional): The maximum separation distance
+            for matching sources, default is 5 arcminutes.
+
+    Returns:
+        astropy.table.Table: The input catalog with objects removed that were near
+            sources in the sources catalog.
+
+    Example:
+        >>> filtered_cat = remove_objects_near_sources(catalog, 'field_name')
     """
     # Get a astropy SkyCoord object catalog to match
     try:
@@ -1755,7 +1928,21 @@ def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
 
 def astropy2fitsio_header(header):
     """
-    Translate and astropy header object into a fitsio FITSHDR object
+    Convert an Astropy FITS header object into a FITSIO FITSHDR object.
+
+    This function translates an Astropy header object into a FITSHDR object that
+    can be used with the FITSIO library. It extracts the header key-value pairs
+    and their associated comments to create the corresponding FITSIO header.
+
+    Args:
+        header (astropy.io.fits.Header): The Astropy FITS header object to be converted.
+
+    Returns:
+        fitsio.FITSHDR: A FITSHDR object that corresponds to the input Astropy header.
+
+    Example:
+        >>> astropy_header = fits.getheader('image.fits')
+        >>> fitsio_header = astropy2fitsio_header(astropy_header)
     """
     # Make the header a FITSHDR object
     hlist = []
@@ -1767,21 +1954,33 @@ def astropy2fitsio_header(header):
 
 def update_wcs_matrix(header, x0, y0, proj='ZEA'):
     """
-    Update the wcs header object with the right CRPIX[1, 2] CRVAL[1, 2] for a
-    given subsection
+    Update the WCS header object with the correct CRPIX[1, 2] and CRVAL[1, 2]
+    values for a given image subsection.
 
-    Parameters:
-    header: fits style header
-        The header to work with
-    x0, y0: float
-        The new center of the image
-    naxis1, naxis2: int
-        The number of pixels on each axis.
+    This function modifies the WCS (World Coordinate System) header for a given
+    subsection of the image, based on the provided center coordinates (x0, y0).
+    It updates the CRPIX (reference pixel) and CRVAL (reference value) keywords
+    in the FITS header according to the selected projection type ('TAN' or 'ZEA').
+
+    Args:
+        header (fits.Header): The FITS header to be updated.
+        x0 (float): The new x-coordinate for the center of the image (in pixels).
+        y0 (float): The new y-coordinate for the center of the image (in pixels).
+        proj (str, optional): The projection type ('TAN' or 'ZEA'). Defaults to 'ZEA'.
 
     Returns:
-        fits style header with the new center.
-    """
+        fits.Header: The updated FITS header with the new WCS information.
 
+    Raises:
+        NameError: If an unsupported projection type is provided.
+
+    Example:
+        >>> updated_header = update_wcs_matrix(header, 1000, 1000, proj='TAN')
+        >>> updated_header['CRPIX1']
+        1.0
+        >>> updated_header['CRVAL1']
+        10.684
+    """
     # We need to make a deep copy/otherwise if fails
     h = copy.deepcopy(header)
     # Get the astropy.wcs object
@@ -1819,8 +2018,32 @@ def update_wcs_matrix(header, x0, y0, proj='ZEA'):
 
 def get_thumbFitsName(ra, dec, filter, obsid,
                       objID=None, prefix=PREFIX, ext='fits', outdir=os.getcwd()):
-    """ Common function to set the Fits thumbnail name """
+    """
+    Generate the file name for a FITS thumbnail file.
 
+    This function formats the provided Right Ascension (RA) and Declination (DEC)
+    coordinates into a string representation in hours and degrees, respectively, and
+    generates a FITS file name for the thumbnail. It also includes the filter, observation
+    ID, and object ID in the name. If the object ID is not provided, a default one is
+    created using a predefined format.
+
+    Args:
+        ra (float): The Right Ascension of the object (in degrees).
+        dec (float): The Declination of the object (in degrees).
+        filter (str): The filter name used for observation.
+        obsid (str): The observation ID.
+        objID (str, optional): The object ID to include in the file name. Defaults to None.
+        prefix (str, optional): A prefix to prepend to the object ID. Defaults to a predefined value.
+        ext (str, optional): The file extension for the output file. Defaults to 'fits'.
+        outdir (str, optional): The output directory for the file. Defaults to the current working directory.
+
+    Returns:
+        str: The generated file name for the FITS thumbnail file.
+
+    Example:
+        >>> get_thumbFitsName(10.684, 41.269, 'W1', '12345')
+        'SPT_10h41m01.6s_+41d16m10.8s_W1_12345.fits'
+    """
     # Format RA,DEC using astropy coordinates
     coo = FK5(ra*u.degree, dec*u.degree)
     ra = f'{coo.ra.to_string(unit=u.hourangle, sep="", precision=0, pad=True)}'
@@ -1834,7 +2057,29 @@ def get_thumbFitsName(ra, dec, filter, obsid,
 
 
 def get_thumbBaseDirName(ra, dec, objID=None, prefix=PREFIX, outdir=os.getcwd()):
-    """ Common function to set the Fits thumbnail name """
+    """
+    Generate the base directory path for a FITS thumbnail file.
+
+    This function formats the provided Right Ascension (RA) and Declination (DEC)
+    coordinates into a string representation in hours and degrees, respectively. It
+    also generates a directory path for the FITS thumbnail, including an optional
+    object ID. If the object ID is not provided, a default one is created using a
+    predefined format.
+
+    Args:
+        ra (float): The Right Ascension of the object (in degrees).
+        dec (float): The Declination of the object (in degrees).
+        objID (str, optional): The object ID to include in the directory path. Defaults to None.
+        prefix (str, optional): A prefix to prepend to the object ID. Defaults to a predefined value.
+        outdir (str, optional): The output directory for the thumbnail. Defaults to the current working directory.
+
+    Returns:
+        str: The generated base directory path for the FITS thumbnail file.
+
+    Example:
+        >>> get_thumbBaseDirName(10.684, 41.269)
+        'SPT_10h41m01.6s_+41d16m10.8s/'
+    """
     # Format RA,DEC using astropy coordinates
     coo = FK5(ra*u.degree, dec*u.degree)
     ra = f'{coo.ra.to_string(unit=u.hourangle, sep="", precision=0, pad=True)}'
@@ -1848,7 +2093,28 @@ def get_thumbBaseDirName(ra, dec, objID=None, prefix=PREFIX, outdir=os.getcwd())
 
 
 def get_thumbBaseName(ra, dec, objID=None, prefix=PREFIX):
-    """ Common function to set the Fits thumbnail name """
+    """
+    Generate the base name for a FITS thumbnail file.
+
+    This function formats the provided Right Ascension (RA) and Declination (DEC)
+    coordinates into a string representation in hours and degrees, respectively. It
+    also generates a base name for the FITS thumbnail using the RA, DEC, and optional
+    object ID. If the object ID is not provided, a default one is created using a
+    predefined format.
+
+    Args:
+        ra (float): The Right Ascension of the object (in degrees).
+        dec (float): The Declination of the object (in degrees).
+        objID (str, optional): The object ID to include in the filename. Defaults to None.
+        prefix (str, optional): A prefix to prepend to the object ID. Defaults to a predefined value.
+
+    Returns:
+        str: The generated base name for the FITS thumbnail file.
+
+    Example:
+        >>> get_thumbBaseName(10.684, 41.269)
+        'SPT_10h41m01.6s_+41d16m10.8s.fits'
+    """
     # Format RA,DEC using astropy coordinates
     coo = FK5(ra*u.degree, dec*u.degree)
     ra = f'{coo.ra.to_string(unit=u.hourangle, sep="", precision=0, pad=True)}'
@@ -1862,7 +2128,25 @@ def get_thumbBaseName(ra, dec, objID=None, prefix=PREFIX):
 
 
 def get_headers_hdus(filename):
+    """
+    Extract headers and HDU indices from a FITS file.
 
+    This function reads a FITS file, retrieves headers from all extensions, and
+    identifies the science (SCI) and weight (WGT) extensions. It handles both
+    well-defined files with EXTNAME and files without EXTNAME. For compressed files,
+    it will also set the appropriate headers and HDUs for the SCI and WGT extensions.
+
+    Args:
+        filename (str): The path to the FITS file.
+
+    Returns:
+        tuple: A tuple containing two OrderedDicts:
+            - header: Dictionary with EXTNAME as keys and corresponding headers.
+            - hdu: Dictionary with EXTNAME as keys and corresponding HDU indices.
+
+    Raises:
+        None
+    """
     header = OrderedDict()
     hdu = OrderedDict()
 
