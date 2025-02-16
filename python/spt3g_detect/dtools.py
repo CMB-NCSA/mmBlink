@@ -693,8 +693,34 @@ class detect_3gworker:
             LOGGER.info(f"Done writing {outname}: {elapsed_time(t0)}")
 
     def run_cutouts(self, cat):
-        """ Run cutouts for a catalog and list of files"""
+        """
+        Run cutouts for a catalog and a list of files to generate source cutouts
+        and lightcurves.
 
+        This function processes a catalog of sources, extracting their sky coordinates (RA and Dec),
+        and uses the cutterlib to generate cutouts for each source. It supports lightcurve extraction,
+        uniform coverage, and rejection of invalid cutouts. The resulting cutouts and other relevant
+        information are stored in dictionaries and used to populate the configuration for further analysis.
+
+        Parameters:
+            cat (astropy.table.Table): The source catalog containing the sky
+                coordinates (RA and Dec) for the sources.
+
+        Returns:
+            None: The function updates the instance's `cutout_names`, `lightcurve`,
+                  and other relevant configuration attributes in-place.
+
+        Example:
+            >>> run_cutouts(catalog)
+
+        Notes:
+            - The cutout generation uses a predefined file naming convention
+              and settings from `self.config`.
+            - This function handles multiple files and bands, and it tracks
+              the progress across files.
+            - The cutouts are stored in dictionaries `cutout_dict`,
+              `rejected_dict`, and `lightcurve_dict`.
+        """
         # Update file naming convention
         cutterlib.FITS_OUTNAME = "{outdir}/{objID}_{obsid}_{filter}.{ext}"
         cutterlib.OBJ_ID = "{prefix}_J{ra}{dec}"
@@ -749,7 +775,31 @@ class detect_3gworker:
         # print(self.config.id_names)
 
     def repack_lc(self):
-        "Repack and write lightcurve dictionaty as FITS table"
+        """
+        Repack and write the lightcurve dictionary as a FITS table.
+
+        This function repacks the lightcurve data stored in `self.lightcurve`
+        for each band in the  `self.files` dictionary and writes it to a FITS
+        table. The output file is named according  to the predefined file naming
+        convention and the appropriate lightcurve data is processed  using the
+        `cutterlib.repack_lightcurve_band_filetype` function.
+
+        Parameters:
+            None
+
+        Returns:
+            None: The function writes the lightcurve data as FITS files.
+
+        Example:
+            >>> repack_lc()
+
+        Notes:
+            - The function updates the file naming convention using
+              `cutterlib.FITS_LC_OUTNAME`.
+            - It processes lightcurve data for each band and uses the
+             `repack_lightcurve_band_filetype` function from `cutterlib`
+             to write the FITS files.
+        """
         # Update file naming convention
         cutterlib.FITS_LC_OUTNAME = "{outdir}/lightcurve_{filter}.{ext}"
         for BAND in self.files.keys():
@@ -874,10 +924,10 @@ def remove_files(filelist, remove_parents=True):
 
 def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
     """
-    Configure an existing logger with specified settings.
-    Sets the format, logging level, and handlers for the given logger.
-    If a logfile is provided, logs are written to both the console and the file
-    with rotation. If no log format or date format is provided, default values are used.
+    Configure an existing logger with specified settings. Sets the format,
+    logging level, and handlers for the given logger. If a logfile is provided,
+    logs are written to both the console and the file with rotation. If no log
+    format or date format is provided, default values are used.
 
     Parameters:
     - logger (logging.Logger): The logger to configure.
@@ -925,8 +975,8 @@ def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None
 def create_logger(logger=None, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
     """
     Configures and returns a logger with specified settings.
-    Sets up logging based on provided level, format, and output file. Can be used
-    for both `setup_logging` and other components.
+    Sets up logging based on provided level, format, and output file. Can be
+    used for both `setup_logging` and other components.
 
     Parameters:
     - logger (logging.Logger, optional): The logger to configure. If `None`, a new logger
@@ -1046,10 +1096,12 @@ def chunker(seq, size):
 
 def find_dual_detections(t1, t2, separation=20, plot=False):
     """
-    Identifies matching sources between two catalogs (dual band match) based on their sky coordinates.
-    The function compares two catalogs of detected sources and identifies matching sources within a given
-    separation threshold. It then returns a catalog with updated centroid information, including both
-    the average positions and maximum flux values for matched sources.
+    Identifies matching sources between two catalogs (dual band match) based on
+    their sky coordinates.
+    The function compares two catalogs of detected sources and identifies
+    matching sources within a given separation threshold. It then returns a
+    catalog with updated centroid information, including both the average
+    positions and maximum flux values for matched sources.
 
     This function performs the following steps:
     1. Ensures that both catalogs have the same observation ID.
@@ -1636,16 +1688,45 @@ def compute_rms2D(data, mask=None, box=200, filter_size=(3, 3), sigmaclip=None):
 def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=20,
                           rms2D=False, rms2Dimage=False, box=(200, 200), filter_size=(3, 3), sigmaclip=None,
                           wcs=None, plot=False, plot_title=None, plot_name=None):
-
     """
-    Use photutils SourceFinder and SourceCatalog to create a catalog of sources
+    Use photutils SourceFinder and SourceCatalog to create a catalog of sources.
 
-    inputs:
-       - npixels: The minimum number of connected pixels,
-       - nsigma_thresh: Number of sigmas use to compute the detection threshold
+    This function uses the SourceFinder from photutils to perform source detection
+    and segmentation on the input data. It generates a catalog of sources, with
+    various properties, and can also produce plots of the detection and background
+    data. If requested, it can compute a 2D RMS background map and apply sigma
+    clipping for noise reduction.
 
+    Parameters:
+        data (array-like): The 2D array of image data for source detection.
+        wgt (array-like, optional): The weight map associated with the image data.
+        mask (array-like, optional): A mask to apply to the data before detection.
+        nsigma_thresh (float, optional): The number of sigmas to use for thresholding
+            the detection (default is 3.5).
+        npixels (int, optional): The minimum number of connected pixels to consider
+            for a valid detection (default is 20).
+        rms2D (bool, optional): If True, compute a 2D RMS background map (default is False).
+        rms2Dimage (bool, optional): If True, save the computed 2D RMS image to a FITS file (default is False).
+        box (tuple, optional): The size of the box for RMS computation (default is (200, 200)).
+        filter_size (tuple, optional): The filter size for smoothing the RMS map (default is (3, 3)).
+        sigmaclip (float, optional): A value to apply sigma clipping (default is None).
+        wcs (astropy.wcs.WCS, optional): The WCS object for the image to convert the pixel coordinates
+            into sky coordinates (default is None).
+        plot (bool, optional): If True, plot the detection, segmentation, and distribution results (default is False).
+        plot_title (str, optional): Title for the plot (default is None).
+        plot_name (str, optional): Name for saving the plot (default is None).
+
+    Returns:
+        tuple: A tuple containing:
+            - segm (array-like): The segmentation map of detected sources.
+            - tbl (astropy.table.Table): A table containing the source catalog.
+
+    Raises:
+        ValueError: If no sources are detected in the input data.
+
+    Example:
+        >>> detect_with_photutils(data, mask=my_mask, plot=True, plot_title='Source Detection')
     """
-
     t0 = time.time()
     if mask is not None:
         # Select only the indices with flux
@@ -1743,8 +1824,27 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
 
 
 def g3_or_fits(filename):
-    """Check based on the filename extension whether this is a FITS or G3 file"""
+    """
+    Check the file extension to determine whether the file is a FITS or G3 file.
 
+    This function inspects the extension of the provided filename to identify
+    whether the file is a FITS file (including compressed variants) or a G3 file
+    (including compressed variants). If the file type cannot be determined,
+    a warning is logged and a ValueError is raised.
+
+    Args:
+        filename (str): The name of the file to check.
+
+    Returns:
+        str: The type of the file, either 'FITS' or 'G3'.
+
+    Raises:
+        ValueError: If the file extension is neither FITS nor G3.
+
+    Example:
+        >>> g3_or_fits('data/file.fits')
+        'FITS'
+    """
     ext = ".".join(filename.split(".")[1:])
     if ext == "fits" or ext == "fits.gz" or ext == "fits.fz":
         filetype = "FITS"
@@ -1758,7 +1858,22 @@ def g3_or_fits(filename):
 
 
 def plot_rms2D(bkg, ax, gmask=None, nsigma_plot=3.5):
+    """
+    Plot the 2D noise map (RMS) with optional masking.
 
+    This function visualizes a 2D background noise map (RMS) and optionally
+    applies a mask to hide certain regions of the data. The noise map is displayed
+    using a grayscale color map, and a color bar is included to indicate the values.
+
+    Args:
+        bkg (numpy.ndarray): The 2D background noise data (RMS) to be displayed.
+        ax (matplotlib.axes.Axes): The axes on which to plot the data.
+        gmask (numpy.ndarray, optional): A boolean mask array to hide certain regions in the plot. Default is None.
+        nsigma_plot (float, optional): The number of standard deviations for color scaling. Default is 3.5.
+
+    Example:
+        >>> plot_rms2D(bkg, ax)
+    """
     # Plot a masked array if gmask is passed
     if gmask is not None:
         bkg = ma.masked_array(bkg, gmask)
@@ -1771,7 +1886,23 @@ def plot_rms2D(bkg, ax, gmask=None, nsigma_plot=3.5):
 
 def plot_detection(ax1, data, cat, sigma, nsigma_plot=5, plot_title=None):
     """
-    Function to plot the 2D data array and catalog produced by photutils
+    Plot the 2D data array with overlaid catalog apertures.
+
+    This function visualizes a 2D data array (such as an image) and overlays
+    catalog apertures, which are used to highlight detected sources.
+    The plot also adjusts the color limits based on the standard deviation
+    of the data to improve visualization.
+
+    Args:
+        ax1 (matplotlib.axes.Axes): The axes on which to plot the data array.
+        data (numpy.ndarray): The 2D data array to be displayed (e.g., an image).
+        cat (astropy.table.Table): The catalog containing object information, used to overlay apertures.
+        sigma (float): The standard deviation of the data, used to determine the color limits.
+        nsigma_plot (int, optional): The number of sigma to scale the color limits. Default is 5.
+        plot_title (str, optional): Title to be displayed on the plot. Default is None.
+
+    Example:
+        >>> plot_detection(ax1, data, cat, sigma)
     """
     vlim = nsigma_plot*sigma
     im1 = ax1.imshow(data, origin='lower', cmap='viridis', vmin=-vlim, vmax=+vlim)
@@ -1787,7 +1918,20 @@ def plot_detection(ax1, data, cat, sigma, nsigma_plot=5, plot_title=None):
 
 def plot_segmentation(ax2, segm, cat, gmask=None):
     """
-    Function to plot the segmentation image and catalog produce by photutils
+    Plot a segmentation image with overlaid catalog apertures.
+
+    This function visualizes the segmentation image, where each segment
+    represents a detected object, and overlays catalog apertures (if available).
+    It also allows for the optional masking of segments using a provided mask.
+
+    Args:
+        ax2 (matplotlib.axes.Axes): The axes on which to plot the segmentation image.
+        segm (numpy.ndarray): The segmentation image (2D array).
+        cat (astropy.table.Table): The catalog containing object information, used to overlay apertures.
+        gmask (numpy.ndarray, optional): A boolean mask to hide certain segments in the plot. Default is None.
+
+    Example:
+        >>> plot_segmentation(ax2, segm, cat)
     """
     # Plot a masked array if gmask is passed
     if gmask is not None:

@@ -22,8 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 def g3_to_fits(g3file, trim=True, compress=False, quantize_level=16.0, overwrite=True):
-    """Transform g3 file with a FlatSkyMap into a FITS file"""
+    """
+    Transform a G3 file containing a FlatSkyMap into a FITS file.
 
+    Parameters:
+    - g3file (str): Input G3 file path.
+    - trim (bool): If True, trims the FITS image to a smaller region.
+    - compress (bool): If True, compresses the FITS file.
+    - quantize_level (float): Quantization level for the transformation.
+    - overwrite (bool): If True, overwrites an existing FITS file.
+    """
     # Set the output name
     fitsfile = g3file.split(".")[0] + ".fits"
     # Get a g3 handle
@@ -71,7 +79,14 @@ def g3_to_fits(g3file, trim=True, compress=False, quantize_level=16.0, overwrite
 
 def extract_metadata_frame(frame, metadata=None):
     """
-    Extract selected metadata from a frames
+    Extract selected metadata from a frame in a G3 file.
+
+    Parameters:
+    - frame: A frame object from the G3 file.
+    - metadata (dict): A dictionary to store the extracted metadata (optional).
+
+    Returns:
+    - metadata (dict): Updated metadata dictionary with extracted values.
     """
     # Loop over all items and select only the ones in the Mapping
     if not metadata:
@@ -98,7 +113,16 @@ def extract_metadata_frame(frame, metadata=None):
 
 def get_field_bbox(field, wcs, gridsize=100):
     """
-    Get the image extent and central position in pixels for a given WCS
+    Get the image extent and central position in pixels for a given WCS.
+
+    Parameters:
+    - field (str): The name of the field.
+    - wcs: WCS (World Coordinate System) object.
+    - gridsize (int): Number of grid points along each axis.
+
+    Returns:
+    - tuple: (xc, yc, xsize, ysize) where xc, yc are the center coordinates
+      and xsize, ysize are the image sizes in pixels.
     """
     deg = core.G3Units.deg
     (ra, dec) = sources.get_field_extent(field,
@@ -132,7 +156,16 @@ def get_field_bbox(field, wcs, gridsize=100):
 
 
 def crossRAzero(ras):
-    # Make sure that they are numpy objetcs
+    """
+    Check if the RA coordinates cross RA=0 and adjust accordingly.
+
+    Parameters:
+    - ras (array): An array of RA coordinates.
+
+    Returns:
+    - tuple: A tuple (CROSSRA0, ras) where CROSSRA0 is a boolean indicating if RA
+      crosses zero, and ras is the adjusted RA array.
+    """    # Make sure that they are numpy objetcs
     ras = np.array(ras)
     racmin = ras.min()
     racmax = ras.max()
@@ -151,7 +184,17 @@ def crossRAzero(ras):
 
 def save_skymap_fits_trim(frame, fitsfile, field, hdr=None, compress=False,
                           overwrite=True):
+    """
+    Save a trimmed version of the sky map to a FITS file.
 
+    Parameters:
+    - frame: A frame object containing the map data.
+    - fitsfile (str): The path to the output FITS file.
+    - field (str): The field name to be used for trimming.
+    - hdr (astropy.io.fits.Header): Header to be included in the FITS file (optional).
+    - compress (bool): If True, compresses the FITS file.
+    - overwrite (bool): If True, overwrites the existing FITS file.
+    """
     if frame.type != core.G3FrameType.Map:
         raise TypeError(f"Input map: {frame.type} must be a FlatSkyMap or HealpixSkyMap")
 
@@ -212,7 +255,16 @@ def save_skymap_fits_trim(frame, fitsfile, field, hdr=None, compress=False,
 
 
 def remove_units(frame, units):
-    "Remove units for g3 frame"
+    """
+    Remove units from the frame, scaling the data accordingly.
+
+    Parameters:
+    - frame: A G3 frame object containing the data.
+    - units: The unit to scale the data to.
+
+    Returns:
+    - frame: The modified G3 frame with units removed.
+    """
     if frame.type != core.G3FrameType.Map:
         return frame
 

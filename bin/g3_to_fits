@@ -8,7 +8,12 @@ import argparse
 
 
 def cmdline():
+    """
+    Parse command-line arguments for transforming G3 FlatSkyMap files to FITS.
 
+    Returns:
+    - args (Namespace): The parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(description="Transform g3 FlatSkyMap files to FITS")
     parser.add_argument("files", nargs='+',
                         help="Filenames to transform from g3 to FITS")
@@ -33,7 +38,10 @@ def cmdline():
 
 
 if __name__ == "__main__":
-
+    """
+    Main function to execute the transformation of G3 files to FITS files.
+    The script logs the progress and times the transformation process for each file.
+    """
     t0 = time.time()
     args = cmdline()
     # Create logger
