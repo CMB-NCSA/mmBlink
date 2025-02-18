@@ -348,49 +348,95 @@ def plot_stamps(images_dict):
     gs = fig.add_gridspec(n_bands, n_images, hspace=0.05, wspace=0.05)
     axs = gs.subplots(sharex='col', sharey='row')
 
+    # Loop over all of the files
+    j = 0
+    for band in bands:
+        i = 0
+        axs[j, 0].set_ylabel(f"{band}GHz", size="x-large")
+
+        for ID in selected_IDs:
+            fitsfile = f"spt3gJ215423.8-495636.0_{band}GHz_{ID}_fltd.fits"
+            hdu_list = fits.open(fitsfile)
+            image_data = hdu_list[0].data
+            header = hdu_list[0].header
+            date_beg = header["DATE-BEG"]
+            t = Time(date_beg, format='isot')
+            obstime = f"{t.mjd:.2f}"
+
+            if i == 0:
+                t0 = float(obstime)
+            days = float(obstime) - t0
+            days = f"{days:.2f}"
+
+            #axs[j, i].axis('off')
+            axs[j, i].imshow(image_data[x1:x2, y1:y2], origin='lower', cmap='gray_r',
+                             vmin=vmin[band], vmax=vmax[band])
+            axs[j, i].set_xticks([])
+            axs[j, i].set_yticks([])
+            axs[j, i].set_xticklabels([])
+            axs[j, i].set_yticklabels([])
+            # axs[2, i].set_xlabel(obstime, size="large")
+            axs[2, i].set_xlabel(str(days), size="large")
+            axs[0, i].set_title(obstime, size="large")
+
+            i += 1
+        j += 1
 
 
-def plot_fits_data(images_dict, flux_data_dict):
-    """
-    Create a multi-panel figure:
-    - Top half: Plot all SCI images in order without frames.
-    - Bottom half: Scatter plot of flux_SCI vs. dates_ave with flux_WGT as error bars.
+    #for ax in fig.get_axes():
+    #    ax.label_outer()
 
-    Parameters:
-    - images_dict: Dictionary with OBSID as keys and 2D numpy arrays (SCI images) as values.
-    - flux_data_dict: Dictionary with keys 'flux_SCI', 'dates_ave', and 'flux_WGT'.
-    """
-    fig, axes = plt.subplots(2, 1, figsize=(18, 10), gridspec_kw={'height_ratios': [1, 1]})
-    # Top half: Plot all SCI images
-    n_images = len(images_dict)
-    for idx, (obsid, image) in enumerate(images_dict.items(), 1):
-        ax = fig.add_subplot(2, n_images, idx)
-        ax.imshow(image, origin='lower', cmap='viridis')
-        ax.set_title(f"{obsid}")
-        ax.axis('off')  # Remove the frame and ticks around the images
+    # fig.supxlabel('Time[MJD]')
+    fig.supxlabel('Time[days]')
+    fig.suptitle('Time[MJD]')
 
-    plt.tight_layout()
-    axes[0].axis('off')  # Remove the frame and ticks around the images
-
-    # Bottom half: Scatter plot of flux_SCI vs. dates_ave with flux_WGT as error bars
-    dates_ave = flux_data_dict['dates_ave']
-    flux_SCI = flux_data_dict['flux_SCI']
-    flux_WGT = flux_data_dict['flux_WGT']
-
-    # Convert the first MJD date to a calendar date using Astropy
-    start_date = Time(dates_ave[0], format='mjd').iso
-
-    # Shift dates_ave to start from the first date
-    dates_ave = [date - dates_ave[0] for date in dates_ave]
-
-    # Figure out the error
-    axes[1].errorbar(dates_ave, flux_SCI, yerr=1/np.sqrt(flux_WGT), fmt='o', color='blue', ecolor='red', capsize=3)
-
-    # Add start date to the xlabel
-    # Only take the 'YYYY-MM-DD' part
-    axes[1].set_xlabel(f'Days since first observation (Start Date: {start_date[:10]})')
-    axes[1].set_ylabel('Flux (SCI)')
-    axes[1].set_title('Flux SCI vs. Days since first observation')
-
-    plt.tight_layout()
+    plt.savefig("flare_example.pdf")
     plt.show()
+
+
+
+
+    def plot_fits_data(images_dict, flux_data_dict):
+        """
+        Create a multi-panel figure:
+        - Top half: Plot all SCI images in order without frames.
+        - Bottom half: Scatter plot of flux_SCI vs. dates_ave with flux_WGT as error bars.
+
+        Parameters:
+        - images_dict: Dictionary with OBSID as keys and 2D numpy arrays (SCI images) as values.
+        - flux_data_dict: Dictionary with keys 'flux_SCI', 'dates_ave', and 'flux_WGT'.
+        """
+        fig, axes = plt.subplots(2, 1, figsize=(18, 10), gridspec_kw={'height_ratios': [1, 1]})
+        # Top half: Plot all SCI images
+        n_images = len(images_dict)
+        for idx, (obsid, image) in enumerate(images_dict.items(), 1):
+            ax = fig.add_subplot(2, n_images, idx)
+            ax.imshow(image, origin='lower', cmap='viridis')
+            ax.set_title(f"{obsid}")
+            ax.axis('off')  # Remove the frame and ticks around the images
+
+        plt.tight_layout()
+        axes[0].axis('off')  # Remove the frame and ticks around the images
+
+        # Bottom half: Scatter plot of flux_SCI vs. dates_ave with flux_WGT as error bars
+        dates_ave = flux_data_dict['dates_ave']
+        flux_SCI = flux_data_dict['flux_SCI']
+        flux_WGT = flux_data_dict['flux_WGT']
+
+        # Convert the first MJD date to a calendar date using Astropy
+        start_date = Time(dates_ave[0], format='mjd').iso
+
+        # Shift dates_ave to start from the first date
+        dates_ave = [date - dates_ave[0] for date in dates_ave]
+
+        # Figure out the error
+        axes[1].errorbar(dates_ave, flux_SCI, yerr=1/np.sqrt(flux_WGT), fmt='o', color='blue', ecolor='red', capsize=3)
+
+        # Add start date to the xlabel
+        # Only take the 'YYYY-MM-DD' part
+        axes[1].set_xlabel(f'Days since first observation (Start Date: {start_date[:10]})')
+        axes[1].set_ylabel('Flux (SCI)')
+        axes[1].set_title('Flux SCI vs. Days since first observation')
+
+        plt.tight_layout()
+        plt.show()
