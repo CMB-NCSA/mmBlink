@@ -92,6 +92,7 @@ if __name__ == "__main__":
     # Source matching
     if args.multi_detection:
         stacked_centroids = d3w.match_dual_bands()
+        print("---------------------------- Done -------------------------")
         d3w.logger.info("Running unique centroids for [stacked_centroids]")
         stacked_centroids = du.find_unique_centroids(stacked_centroids, separation=args.max_sep, plot=args.plot)
     else:
@@ -104,6 +105,7 @@ if __name__ == "__main__":
     d3w.run_cutouts(stacked_centroids)
     d3w.repack_lc()
     d3w.repack_stamps()
+    print(f"Grand total time: {du.elapsed_time(t0)}")
 
     exit()
 

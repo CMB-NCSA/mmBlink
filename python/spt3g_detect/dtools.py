@@ -379,7 +379,7 @@ class detect_3gworker:
         self.logger.debug(f"Removing weights: {frame['Id']}")
         t1 = time.time()
         maps.RemoveWeights(frame, zero_nans=True)
-        self.logger.info(f"Remove Weights time: {elapsed_time(t1)}[s]")
+        self.logger.info(f"Remove Weights time: {elapsed_time(t1)}")
         self.flux[key] = np.asarray(frame['T'])/core.G3Units.mJy
         self.flux_wgt[key] = np.asarray(frame['Wunpol'].TT)*core.G3Units.mJy*core.G3Units.mJy
         self.logger.debug(f"Min/Max Flux: {self.flux[key].min()} {self.flux[key].max()}")
@@ -394,7 +394,7 @@ class detect_3gworker:
         except Exception as e:
             self.logger.warning(e.message)
             self.flux_mask[key] = None
-        self.logger.info(f"Map from frame loaded for {obsID} {band}: {elapsed_time(t0)}[s]")
+        self.logger.info(f"Map from frame loaded for {obsID} {band}: {elapsed_time(t0)}")
         # Adding obsID to list of loaded list
         if obsID not in self.obsIDs:
             self.obsIDs.append(obsID)
@@ -627,13 +627,17 @@ class detect_3gworker:
         self.matched_cat = {}
 
         # Loop over all of the observations
-        for obsID in self.bands.keys():
+        for k, obsID in enumerate(self.bands):
+            self.logger.debug(f"Dual Band {k+1}/{len(self.bands)}")
             if self.bands[obsID] == self.config.bands:
                 self.logger.debug(f"Will atempt match for {obsID}, bands: {self.bands[obsID]}")
                 key1 = f"{obsID}_{self.bands[obsID][0]}"
                 key2 = f"{obsID}_{self.bands[obsID][1]}"
-                self.logger.info(f"Doing dual band match {key1} vs {key2}")
-                self.matched_cat[obsID] = find_dual_detections(self.cat[key1], self.cat[key2])
+                self.logger.info(f"Attempting dual band match {key1} vs {key2}")
+                matched = find_dual_detections(self.cat[key1], self.cat[key2])
+                if matched is None:
+                    continue
+                self.matched_cat[obsID] = matched
             else:
                 self.logger.debug(f"No dual match for {obsID}, bands: {self.bands[obsID]} ")
         return self.matched_cat
@@ -1159,12 +1163,15 @@ def find_dual_detections(t1, t2, separation=20, plot=False):
     if len(idxcat1) == 0:
         logger.info(f"*** No matches for: {labelID} ***")
         return None
+    else:
+        logger.info(f"*** Found {len(idxcat1)} matches for {labelID} ***")
 
     # Concatenate matched positions
     xx_sky = np.array([t1[idxcat1]['sky_centroid'].ra.data, t2[idxcat2]['sky_centroid'].ra.data])
     yy_sky = np.array([t1[idxcat1]['sky_centroid'].dec.data, t2[idxcat2]['sky_centroid'].dec.data])
     xx_pix = np.array([t1[idxcat1]['xcentroid'].data, t2[idxcat2]['xcentroid'].data])
     yy_pix = np.array([t1[idxcat1]['ycentroid'].data, t2[idxcat2]['ycentroid'].data])
+
     # Get the average positions
     xc_sky = np.mean(xx_sky, axis=0)
     yc_sky = np.mean(yy_sky, axis=0)
@@ -1181,7 +1188,7 @@ def find_dual_detections(t1, t2, separation=20, plot=False):
     obs_max = obs_value.T[0][idmax]
 
     # We based our table on t1 and update with (some) averages with positions
-    stacked_centroids = t1
+    stacked_centroids = t1[idxcat1]
     # Before Update
     logger.debug("Before Update")
     t = stacked_centroids['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
@@ -1254,7 +1261,7 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         # Select current and next table IDs
         label1 = labelIDs[k]
         label2 = labelIDs[k+1]
-        logger.info(f"Doing: {k}/{len(labelIDs)-2}")
+        logger.info(f"Doing: {k+1}/{len(labelIDs)-2}")
 
         # Extract the catalogs (i.e. SkyCoord objects) for search_around_sky
         # and make shorcuts of tables
@@ -1749,7 +1756,7 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
         sigma2D = np.where(mask, bkg.background, np.nan)
         # sigma2D = bkg.background
         threshold = nsigma_thresh * sigma2D
-        LOGGER.debug(f"2D RMS computed in {elapsed_time(t0)} [s]")
+        LOGGER.debug(f"2D RMS computed in {elapsed_time(t0)}")
         # Dump 2D rms image into a fits file
         if rms2Dimage:
             hdr = wcs.to_header()
@@ -1780,7 +1787,7 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     cat.default_columns.append('elongation')
     cat.default_columns.append('ellipticity')
 
-    LOGGER.info(f"detect_with_photutils runtime: {elapsed_time(t0)} [s]")
+    LOGGER.info(f"detect_with_photutils runtime: {elapsed_time(t0)}")
     LOGGER.info(f"Found: {len(cat)} objects")
 
     # Nicer formatting
@@ -1817,9 +1824,9 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
         else:
             plt.show()
         plt.close()
-        LOGGER.info(f"detect_with_photutils PLOT runtime: {elapsed_time(t1)} [s]")
+        LOGGER.info(f"detect_with_photutils PLOT runtime: {elapsed_time(t1)}")
 
-    LOGGER.info(f"detect_with_photutils TOTAL runtime: {elapsed_time(t0)} [s]")
+    LOGGER.info(f"detect_with_photutils TOTAL runtime: {elapsed_time(t0)}")
     return segm, tbl
 
 

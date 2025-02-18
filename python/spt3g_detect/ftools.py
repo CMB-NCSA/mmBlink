@@ -9,6 +9,9 @@ import astropy.io.fits
 import re
 import os
 import copy
+import matplotlib.pyplot as plt
+from astropy.time import Time
+
 
 # Mapping of metadata to FITS keywords
 _keywords_map = {'ObservationStart': ('DATE-BEG', 'Observation start date'),
@@ -281,3 +284,113 @@ def remove_units(frame, units):
             frame[k] = frame.pop(k) * w_scale
 
     return frame
+
+
+def load_fits_stamp(fits_file):
+    """
+    Load 2-D images from SCI-n extensions in a multi-extension FITS file.
+
+    Parameters:
+        fits_file (str): Path to the FITS file.
+
+    Returns:
+        dict: A dictionary with OBSID as keys and 2-D numpy arrays as values.
+        str: The ID value from the PRIMARY HDU header.
+    """
+    images = {}
+    with astropy.io.fits.open(fits_file) as hdul:
+        # Get NFILES and ID from the primary header
+        primary_header = hdul[0].header
+        nfiles = primary_header['NFILES']
+        id = primary_header['ID']
+
+        # Loop through the extensions to get SCI-n images
+        for i in range(1, nfiles + 1):
+            sci_ext_name = f"SCI_{i}"
+            if sci_ext_name in hdul:
+                obsid = hdul[sci_ext_name].header['OBSID']
+                images[obsid] = hdul[sci_ext_name].data
+
+    return images, id
+
+
+def load_fits_table(fits_table_file, target_id):
+    """
+    Load a FITS table and return the row matching the given 'id'.
+
+    Parameters:
+    - fits_table_file (str): Path to the FITS table file.
+    - target_id (str): The 'id' to match in the table.
+
+    Returns:
+    - dict: A dictionary containing the matching row with columns 'id', 'dates_ave', 'flux_SCI', and 'flux_WGT'.
+    """
+    with astropy.io.fits.open(fits_table_file) as hdul:
+        table_data = hdul[1].data
+        ids = table_data['id']
+
+        # Find the index where 'id' matches target_id
+        match_index = np.where(ids == target_id)[0]
+
+        if len(match_index) == 0:
+            raise ValueError(f"ID {target_id} not found in {fits_table_file}")
+
+        # Extract row data
+        row = table_data[match_index[0]]
+        return row
+
+def plot_stamps(images_dict):
+
+    n_bands = 1
+    n_images = len(images_dict)
+
+    fig = plt.figure(figsize=(n_images*1.8, n_bands*1.8))
+    gs = fig.add_gridspec(n_bands, n_images, hspace=0.05, wspace=0.05)
+    axs = gs.subplots(sharex='col', sharey='row')
+
+
+
+def plot_fits_data(images_dict, flux_data_dict):
+    """
+    Create a multi-panel figure:
+    - Top half: Plot all SCI images in order without frames.
+    - Bottom half: Scatter plot of flux_SCI vs. dates_ave with flux_WGT as error bars.
+
+    Parameters:
+    - images_dict: Dictionary with OBSID as keys and 2D numpy arrays (SCI images) as values.
+    - flux_data_dict: Dictionary with keys 'flux_SCI', 'dates_ave', and 'flux_WGT'.
+    """
+    fig, axes = plt.subplots(2, 1, figsize=(18, 10), gridspec_kw={'height_ratios': [1, 1]})
+    # Top half: Plot all SCI images
+    n_images = len(images_dict)
+    for idx, (obsid, image) in enumerate(images_dict.items(), 1):
+        ax = fig.add_subplot(2, n_images, idx)
+        ax.imshow(image, origin='lower', cmap='viridis')
+        ax.set_title(f"{obsid}")
+        ax.axis('off')  # Remove the frame and ticks around the images
+
+    plt.tight_layout()
+    axes[0].axis('off')  # Remove the frame and ticks around the images
+
+    # Bottom half: Scatter plot of flux_SCI vs. dates_ave with flux_WGT as error bars
+    dates_ave = flux_data_dict['dates_ave']
+    flux_SCI = flux_data_dict['flux_SCI']
+    flux_WGT = flux_data_dict['flux_WGT']
+
+    # Convert the first MJD date to a calendar date using Astropy
+    start_date = Time(dates_ave[0], format='mjd').iso
+
+    # Shift dates_ave to start from the first date
+    dates_ave = [date - dates_ave[0] for date in dates_ave]
+
+    # Figure out the error
+    axes[1].errorbar(dates_ave, flux_SCI, yerr=1/np.sqrt(flux_WGT), fmt='o', color='blue', ecolor='red', capsize=3)
+
+    # Add start date to the xlabel
+    # Only take the 'YYYY-MM-DD' part
+    axes[1].set_xlabel(f'Days since first observation (Start Date: {start_date[:10]})')
+    axes[1].set_ylabel('Flux (SCI)')
+    axes[1].set_title('Flux SCI vs. Days since first observation')
+
+    plt.tight_layout()
+    plt.show()
