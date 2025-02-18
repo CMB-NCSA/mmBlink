@@ -298,6 +298,7 @@ def load_fits_stamp(fits_file):
         str: The ID value from the PRIMARY HDU header.
     """
     images = {}
+    headers = {}
     with astropy.io.fits.open(fits_file) as hdul:
         # Get NFILES and ID from the primary header
         primary_header = hdul[0].header
@@ -310,8 +311,9 @@ def load_fits_stamp(fits_file):
             if sci_ext_name in hdul:
                 obsid = hdul[sci_ext_name].header['OBSID']
                 images[obsid] = hdul[sci_ext_name].data
+                headers[obsid] = hdul[sci_ext_name].header
 
-    return images, id
+    return images, headers, id
 
 
 def load_fits_table(fits_table_file, target_id):
@@ -339,26 +341,31 @@ def load_fits_table(fits_table_file, target_id):
         row = table_data[match_index[0]]
         return row
 
-def plot_stamps(images_dict):
 
-    n_bands = 1
-    n_images = len(images_dict)
+def plot_stamps(images_dict, headers_dict):
 
-    fig = plt.figure(figsize=(n_images*1.8, n_bands*1.8))
-    gs = fig.add_gridspec(n_bands, n_images, hspace=0.05, wspace=0.05)
+    bands = images_dict.keys()
+    selected_IDs = images_dict['90GHz'].keys()
+    n_bands = len(bands)
+    n_images = len(images_dict['90GHz'])
+
+    hscale = 1.2
+    fig = plt.figure(figsize=(n_images, n_bands*hscale))
+    gs = fig.add_gridspec(n_bands, n_images,
+                          left=0.03, right=0.98,
+                          top=0.8, bottom=0.2,
+                          hspace=0.05*hscale, wspace=0.05)
     axs = gs.subplots(sharex='col', sharey='row')
 
     # Loop over all of the files
     j = 0
     for band in bands:
         i = 0
-        axs[j, 0].set_ylabel(f"{band}GHz", size="x-large")
+        axs[j, 0].set_ylabel(f"{band}", size="medium")
 
         for ID in selected_IDs:
-            fitsfile = f"spt3gJ215423.8-495636.0_{band}GHz_{ID}_fltd.fits"
-            hdu_list = fits.open(fitsfile)
-            image_data = hdu_list[0].data
-            header = hdu_list[0].header
+            image_data = images_dict[band][ID]
+            header = headers_dict[band][ID]
             date_beg = header["DATE-BEG"]
             t = Time(date_beg, format='isot')
             obstime = f"{t.mjd:.2f}"
@@ -368,33 +375,23 @@ def plot_stamps(images_dict):
             days = float(obstime) - t0
             days = f"{days:.2f}"
 
-            #axs[j, i].axis('off')
-            axs[j, i].imshow(image_data[x1:x2, y1:y2], origin='lower', cmap='gray_r',
-                             vmin=vmin[band], vmax=vmax[band])
+            # axs[j, i].axis('off')
+            axs[j, i].imshow(image_data, origin='lower', cmap='viridis')
             axs[j, i].set_xticks([])
             axs[j, i].set_yticks([])
             axs[j, i].set_xticklabels([])
             axs[j, i].set_yticklabels([])
             # axs[2, i].set_xlabel(obstime, size="large")
-            axs[2, i].set_xlabel(str(days), size="large")
-            axs[0, i].set_title(obstime, size="large")
+            axs[-1, i].set_xlabel(str(days), size="small")
+            axs[0, i].set_title(obstime, size="small")
 
             i += 1
         j += 1
 
-
-    #for ax in fig.get_axes():
-    #    ax.label_outer()
-
-    # fig.supxlabel('Time[MJD]')
-    fig.supxlabel('Time[days]')
-    fig.suptitle('Time[MJD]')
-
-    plt.savefig("flare_example.pdf")
+    plt.tight_layout()
+    fig.supxlabel('Time[days]', size="medium")
+    fig.suptitle('Time[MJD]', size="medium")
     plt.show()
-
-
-
 
     def plot_fits_data(images_dict, flux_data_dict):
         """
