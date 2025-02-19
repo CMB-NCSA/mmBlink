@@ -342,19 +342,31 @@ def load_fits_table(fits_table_file, target_id):
         return row
 
 
-def plot_stamps(images_dict, headers_dict):
+def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict):
 
-    bands = images_dict.keys()
-    selected_IDs = images_dict['90GHz'].keys()
+    bands = list(images_dict.keys())
     n_bands = len(bands)
-    n_images = len(images_dict['90GHz'])
+    # Make sure that all dictionaries have same number of observations
+    for k, band in enumerate(images_dict):
+        if k == 0:
+            selected_IDs = images_dict[band].keys()
+            n_images = len(selected_IDs)
+            continue
+        elif n_images != len(images_dict[band].keys()):
+            raise ValueError(f"Mismatch of observations for band: {band}")
 
-    hscale = 1.2
-    fig = plt.figure(figsize=(n_images, n_bands*hscale))
-    gs = fig.add_gridspec(n_bands, n_images,
-                          left=0.03, right=0.98,
-                          top=0.8, bottom=0.2,
-                          hspace=0.05*hscale, wspace=0.05)
+    # Horizontal (4%) and vertical (15%) space for margins
+    hmargin = 0.04
+    vmargin = 0.15
+    height_ratios = [1]*n_bands
+    height_ratios.append(0.2)   # space between thumbnails and lightcurve
+    height_ratios.append(n_bands)
+    hscale = (1-2*hmargin)/(1-2*vmargin)
+    fig = plt.figure(figsize=(n_images, (n_bands*2)*hscale))
+    gs = fig.add_gridspec(n_bands+2, n_images, height_ratios=height_ratios,
+                          left=hmargin, right=1-hmargin,
+                          top=1-vmargin, bottom=vmargin,
+                          hspace=0.05*hscale, wspace=0)
     axs = gs.subplots(sharex='col', sharey='row')
 
     # Loop over all of the files
@@ -362,11 +374,11 @@ def plot_stamps(images_dict, headers_dict):
     for band in bands:
         i = 0
         axs[j, 0].set_ylabel(f"{band}", size="medium")
-
         for ID in selected_IDs:
             image_data = images_dict[band][ID]
             header = headers_dict[band][ID]
             date_beg = header["DATE-BEG"]
+            obsid = header["OBSID"]
             t = Time(date_beg, format='isot')
             obstime = f"{t.mjd:.2f}"
 
@@ -381,59 +393,48 @@ def plot_stamps(images_dict, headers_dict):
             axs[j, i].set_yticks([])
             axs[j, i].set_xticklabels([])
             axs[j, i].set_yticklabels([])
-            # axs[2, i].set_xlabel(obstime, size="large")
-            axs[-1, i].set_xlabel(str(days), size="small")
-            axs[0, i].set_title(obstime, size="small")
-
+            # axs[-3, i].set_xlabel(str(days), size="small")
+            axs[-3, i].set_xlabel(obstime, size="small")
+            if j == 0:
+                axs[0, i].set_title(obsid, size="small")
             i += 1
         j += 1
 
-    plt.tight_layout()
-    fig.supxlabel('Time[days]', size="medium")
-    fig.suptitle('Time[MJD]', size="medium")
-    plt.show()
+    # Remove axis for last row that will be dedicated to the LC
+    for i in range(n_images):
+        axs[j, i].set_axis_off()
+        axs[j+1, i].set_axis_off()
 
-    def plot_fits_data(images_dict, flux_data_dict):
-        """
-        Create a multi-panel figure:
-        - Top half: Plot all SCI images in order without frames.
-        - Bottom half: Scatter plot of flux_SCI vs. dates_ave with flux_WGT as error bars.
+    ax0 = fig.add_subplot(gs[n_bands, :])
+    ax0.set_axis_off()
+    ax0.set_ylabel("hello", size="large")
+    ax1 = fig.add_subplot(gs[-1, :])
+    fig.subplots_adjust(bottom=0.1)
 
-        Parameters:
-        - images_dict: Dictionary with OBSID as keys and 2D numpy arrays (SCI images) as values.
-        - flux_data_dict: Dictionary with keys 'flux_SCI', 'dates_ave', and 'flux_WGT'.
-        """
-        fig, axes = plt.subplots(2, 1, figsize=(18, 10), gridspec_kw={'height_ratios': [1, 1]})
-        # Top half: Plot all SCI images
-        n_images = len(images_dict)
-        for idx, (obsid, image) in enumerate(images_dict.items(), 1):
-            ax = fig.add_subplot(2, n_images, idx)
-            ax.imshow(image, origin='lower', cmap='viridis')
-            ax.set_title(f"{obsid}")
-            ax.axis('off')  # Remove the frame and ticks around the images
+    fcolor = {}
+    fcolor['90GHz'] = 'red'
+    fcolor['150GHz'] = 'blue'
 
-        plt.tight_layout()
-        axes[0].axis('off')  # Remove the frame and ticks around the images
+    # Loop over all band in lightcurve
+    for band in lightcurve_dict.keys():
 
-        # Bottom half: Scatter plot of flux_SCI vs. dates_ave with flux_WGT as error bars
-        dates_ave = flux_data_dict['dates_ave']
-        flux_SCI = flux_data_dict['flux_SCI']
-        flux_WGT = flux_data_dict['flux_WGT']
+        id = lightcurve_dict[band]['id']
+        dates_ave = lightcurve_dict[band]['dates_ave']
+        flux_SCI = lightcurve_dict[band]['flux_SCI']
+        flux_WGT = lightcurve_dict[band]['flux_WGT']
 
         # Convert the first MJD date to a calendar date using Astropy
-        start_date = Time(dates_ave[0], format='mjd').iso
+        # start_date = Time(dates_ave[0], format='mjd').iso
 
         # Shift dates_ave to start from the first date
-        dates_ave = [date - dates_ave[0] for date in dates_ave]
+        # dates_ave = [date - dates_ave[0] for date in dates_ave]
 
         # Figure out the error
-        axes[1].errorbar(dates_ave, flux_SCI, yerr=1/np.sqrt(flux_WGT), fmt='o', color='blue', ecolor='red', capsize=3)
+        ax1.errorbar(dates_ave, flux_SCI, yerr=1/np.sqrt(flux_WGT),
+                     fmt='o', mfc=fcolor[band], mec='black',
+                     elinewidth=1, ecolor=fcolor[band], capsize=1)
+        ax1.set_xlabel("Time[MJD]")
+        ax1.set_ylabel('Flux [mJy]')
 
-        # Add start date to the xlabel
-        # Only take the 'YYYY-MM-DD' part
-        axes[1].set_xlabel(f'Days since first observation (Start Date: {start_date[:10]})')
-        axes[1].set_ylabel('Flux (SCI)')
-        axes[1].set_title('Flux SCI vs. Days since first observation')
-
-        plt.tight_layout()
-        plt.show()
+    fig.suptitle(f"{id}")
+    plt.show()

@@ -25,10 +25,8 @@ import spt3g_detect
 from spt3g import core, maps
 from spt3g import sources
 import fitsio
-import copy
 from astropy.wcs import WCS
 # from astropy.io import ascii
-from collections import OrderedDict
 from photutils.utils.exceptions import NoDetectionsWarning
 from spt3g_cutter import cutterlib
 
@@ -305,7 +303,7 @@ class detect_3gworker:
 
         # Get header/extensions/hdu
         t0 = time.time()
-        header, hdunum = get_headers_hdus(filename)
+        header, hdunum = cutterlib.get_headers_hdus(filename)
         band = header['SCI']['BAND']
         if band not in self.config.bands:
             self.logger.info(f"Skipping file: {filename}, not in --bands {self.config.bands}")
@@ -683,13 +681,12 @@ class detect_3gworker:
             outname = f"{x0}_{y0}.fits"
             thumb = data[int(y1):int(y2), int(x1):int(x2)]
             thumb_wgt = wgt[int(y1):int(y2), int(x1):int(x2)]
-            h_section = update_wcs_matrix(hdr, x1, y1)
+            h_section = cutterlib.update_wcs_matrix(hdr, x1, y1)
             # Construct the name of the Thumbmail using BAND/FILTER/prefix/etc
             ra, dec = wcs.wcs_pix2world(x0, y0, 1)
-            objID = get_thumbBaseName(ra, dec, prefix='SPT')
-            outname = get_thumbFitsName(ra, dec, hdr['BAND'], hdr['OBSID'],
-                                        objID=objID, prefix='SPT', outdir=".")
-
+            objID = cutterlib.get_thumbBaseName(ra, dec, prefix='SPT')
+            outname = cutterlib.get_thumbFitsName(ra, dec, hdr['BAND'], hdr['OBSID'],
+                                                  objID=objID, prefix='SPT', outdir=".")
             ofits = fitsio.FITS(outname, 'rw', clobber=clobber)
             ofits.write(thumb, extname='SCI', header=h_section)
             ofits.write(thumb_wgt, extname='WGT', header=h_section)
@@ -775,8 +772,6 @@ class detect_3gworker:
         self.lightcurve = lightcurve_dict
         self.config.id_names = cutterlib.get_id_names(ra, dec, prefix)
         self.config.obs_dict = cutterlib.get_obs_dictionary(lightcurve_dict)
-        # print(self.config.obs_dict)
-        # print(self.config.id_names)
 
     def repack_lc(self):
         """
@@ -2101,240 +2096,3 @@ def astropy2fitsio_header(header):
         hlist.append({'name': key, 'value': header[key], 'comment': header.comments[key]})
     h = fitsio.FITSHDR(hlist)
     return h
-
-
-def update_wcs_matrix(header, x0, y0, proj='ZEA'):
-    """
-    Update the WCS header object with the correct CRPIX[1, 2] and CRVAL[1, 2]
-    values for a given image subsection.
-
-    This function modifies the WCS (World Coordinate System) header for a given
-    subsection of the image, based on the provided center coordinates (x0, y0).
-    It updates the CRPIX (reference pixel) and CRVAL (reference value) keywords
-    in the FITS header according to the selected projection type ('TAN' or 'ZEA').
-
-    Args:
-        header (fits.Header): The FITS header to be updated.
-        x0 (float): The new x-coordinate for the center of the image (in pixels).
-        y0 (float): The new y-coordinate for the center of the image (in pixels).
-        proj (str, optional): The projection type ('TAN' or 'ZEA'). Defaults to 'ZEA'.
-
-    Returns:
-        fits.Header: The updated FITS header with the new WCS information.
-
-    Raises:
-        NameError: If an unsupported projection type is provided.
-
-    Example:
-        >>> updated_header = update_wcs_matrix(header, 1000, 1000, proj='TAN')
-        >>> updated_header['CRPIX1']
-        1.0
-        >>> updated_header['CRVAL1']
-        10.684
-    """
-    # We need to make a deep copy/otherwise if fails
-    h = copy.deepcopy(header)
-    # Get the astropy.wcs object
-    wcs = WCS(h)
-
-    if proj == 'TAN':
-        # Recompute CRVAL1/2 on the new center x0,y0
-        CRVAL1, CRVAL2 = wcs.wcs_pix2world(x0, y0, 0)
-        # Recast numpy objects as floats
-        CRVAL1 = float(CRVAL1)
-        CRVAL2 = float(CRVAL2)
-        # Asign CRPIX1/2 on the new image
-        CRPIX1 = 1
-        CRPIX2 = 1
-        # Update the values
-        h['CRVAL1'] = CRVAL1
-        h['CRVAL2'] = CRVAL2
-        h['CRPIX1'] = CRPIX1
-        h['CRPIX2'] = CRPIX2
-        h['CTYPE1'] = 'RA---TAN'
-        h['CTYPE2'] = 'DEC--TAN'
-
-    elif proj == 'ZEA':
-        CRPIX1 = float(h['CRPIX1']) - x0
-        CRPIX2 = float(h['CRPIX2']) - y0
-        h['CRPIX1'] = CRPIX1
-        h['CRPIX2'] = CRPIX2
-        LOGGER.debug(f"Updated to CRPIX1:{CRPIX1}, CRPIX2:{CRPIX2}")
-
-    else:
-        raise NameError(f"Projection: {proj} not implemented")
-
-    return h
-
-
-def get_thumbFitsName(ra, dec, filter, obsid,
-                      objID=None, prefix=PREFIX, ext='fits', outdir=os.getcwd()):
-    """
-    Generate the file name for a FITS thumbnail file.
-
-    This function formats the provided Right Ascension (RA) and Declination (DEC)
-    coordinates into a string representation in hours and degrees, respectively, and
-    generates a FITS file name for the thumbnail. It also includes the filter, observation
-    ID, and object ID in the name. If the object ID is not provided, a default one is
-    created using a predefined format.
-
-    Args:
-        ra (float): The Right Ascension of the object (in degrees).
-        dec (float): The Declination of the object (in degrees).
-        filter (str): The filter name used for observation.
-        obsid (str): The observation ID.
-        objID (str, optional): The object ID to include in the file name. Defaults to None.
-        prefix (str, optional): A prefix to prepend to the object ID. Defaults to a predefined value.
-        ext (str, optional): The file extension for the output file. Defaults to 'fits'.
-        outdir (str, optional): The output directory for the file. Defaults to the current working directory.
-
-    Returns:
-        str: The generated file name for the FITS thumbnail file.
-
-    Example:
-        >>> get_thumbFitsName(10.684, 41.269, 'W1', '12345')
-        'SPT_10h41m01.6s_+41d16m10.8s_W1_12345.fits'
-    """
-    # Format RA,DEC using astropy coordinates
-    coo = FK5(ra*u.degree, dec*u.degree)
-    ra = f'{coo.ra.to_string(unit=u.hourangle, sep="", precision=0, pad=True)}'
-    dec = f'{coo.dec.to_string(sep="", precision=1, alwayssign=True, pad=True)}'
-    if objID is None:
-        objID = OBJ_ID.format(ra=ra, dec=dec, prefix=prefix)
-    # Locals need to be captured at the end
-    kw = locals()
-    outname = FITS_OUTNAME.format(**kw)
-    return outname
-
-
-def get_thumbBaseDirName(ra, dec, objID=None, prefix=PREFIX, outdir=os.getcwd()):
-    """
-    Generate the base directory path for a FITS thumbnail file.
-
-    This function formats the provided Right Ascension (RA) and Declination (DEC)
-    coordinates into a string representation in hours and degrees, respectively. It
-    also generates a directory path for the FITS thumbnail, including an optional
-    object ID. If the object ID is not provided, a default one is created using a
-    predefined format.
-
-    Args:
-        ra (float): The Right Ascension of the object (in degrees).
-        dec (float): The Declination of the object (in degrees).
-        objID (str, optional): The object ID to include in the directory path. Defaults to None.
-        prefix (str, optional): A prefix to prepend to the object ID. Defaults to a predefined value.
-        outdir (str, optional): The output directory for the thumbnail. Defaults to the current working directory.
-
-    Returns:
-        str: The generated base directory path for the FITS thumbnail file.
-
-    Example:
-        >>> get_thumbBaseDirName(10.684, 41.269)
-        'SPT_10h41m01.6s_+41d16m10.8s/'
-    """
-    # Format RA,DEC using astropy coordinates
-    coo = FK5(ra*u.degree, dec*u.degree)
-    ra = f'{coo.ra.to_string(unit=u.hourangle, sep="", precision=0, pad=True)}'
-    dec = f'{coo.dec.to_string(sep="", precision=1, alwayssign=True, pad=True)}'
-    if objID is None:
-        objID = OBJ_ID.format(ra=ra, dec=dec, prefix=prefix)
-    # Locals need to be captured at the end
-    kw = locals()
-    basedir = BASEDIR_OUTNAME.format(**kw)
-    return basedir
-
-
-def get_thumbBaseName(ra, dec, objID=None, prefix=PREFIX):
-    """
-    Generate the base name for a FITS thumbnail file.
-
-    This function formats the provided Right Ascension (RA) and Declination (DEC)
-    coordinates into a string representation in hours and degrees, respectively. It
-    also generates a base name for the FITS thumbnail using the RA, DEC, and optional
-    object ID. If the object ID is not provided, a default one is created using a
-    predefined format.
-
-    Args:
-        ra (float): The Right Ascension of the object (in degrees).
-        dec (float): The Declination of the object (in degrees).
-        objID (str, optional): The object ID to include in the filename. Defaults to None.
-        prefix (str, optional): A prefix to prepend to the object ID. Defaults to a predefined value.
-
-    Returns:
-        str: The generated base name for the FITS thumbnail file.
-
-    Example:
-        >>> get_thumbBaseName(10.684, 41.269)
-        'SPT_10h41m01.6s_+41d16m10.8s.fits'
-    """
-    # Format RA,DEC using astropy coordinates
-    coo = FK5(ra*u.degree, dec*u.degree)
-    ra = f'{coo.ra.to_string(unit=u.hourangle, sep="", precision=0, pad=True)}'
-    dec = f'{coo.dec.to_string(sep="", precision=1, alwayssign=True, pad=True)}'
-    if objID is None:
-        objID = OBJ_ID.format(ra=ra, dec=dec, prefix=prefix)
-    # Locals need to be captured at the end
-    kw = locals()
-    outname = BASE_OUTNAME.format(**kw)
-    return outname
-
-
-def get_headers_hdus(filename):
-    """
-    Extract headers and HDU indices from a FITS file.
-
-    This function reads a FITS file, retrieves headers from all extensions, and
-    identifies the science (SCI) and weight (WGT) extensions. It handles both
-    well-defined files with EXTNAME and files without EXTNAME. For compressed files,
-    it will also set the appropriate headers and HDUs for the SCI and WGT extensions.
-
-    Args:
-        filename (str): The path to the FITS file.
-
-    Returns:
-        tuple: A tuple containing two OrderedDicts:
-            - header: Dictionary with EXTNAME as keys and corresponding headers.
-            - hdu: Dictionary with EXTNAME as keys and corresponding HDU indices.
-
-    Raises:
-        None
-    """
-    header = OrderedDict()
-    hdu = OrderedDict()
-
-    is_compressed = False
-    with fitsio.FITS(filename) as fits:
-        # Case 1 -- for well-defined fitsfiles with EXTNAME
-        for k in range(len(fits)):
-            h = fits[k].read_header()
-            # Is compressed
-            if h.get('ZIMAGE'):
-                is_compressed = True
-            # Make sure that we can get the EXTNAME
-            if not h.get('EXTNAME'):
-                continue
-            extname = h['EXTNAME'].strip()
-            if extname == 'COMPRESSED_IMAGE':
-                is_compressed = True
-                continue
-            header[extname] = h
-            hdu[extname] = k
-
-        # Case 2 -- files without EXTNAME
-        if len(header) < 1:
-            LOGGER.debug("Getting EXTNAME by compression")
-            if is_compressed:
-                sci_hdu = 1
-                wgt_hdu = 2
-            else:
-                sci_hdu = 0
-                wgt_hdu = 1
-            # Assign headers and hdus
-            header['SCI'] = fits[sci_hdu].read_header()
-            hdu['SCI'] = sci_hdu
-            try:
-                header['WGT'] = fits[wgt_hdu].read_header()
-                hdu['WGT'] = wgt_hdu
-            except IOError:
-                LOGGER.warning(f"No WGT HDU for: {filename}")
-    fits.close()
-    return header, hdu

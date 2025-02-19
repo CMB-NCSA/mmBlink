@@ -5,8 +5,10 @@ import sys
 
 filename_stamp1 = sys.argv[1]
 filename_stamp2 = sys.argv[2]
-filename_table = sys.argv[3]
+filename_table1 = sys.argv[3]
+filename_table2 = sys.argv[4]
 
+lc = {}
 images = {}
 headers = {}
 
@@ -16,10 +18,10 @@ images['150GHz'], headers['150GHz'], id = ft.load_fits_stamp(filename_stamp2)
 
 print(images.keys())
 
-lc = ft.load_fits_table(filename_table, id)
+lc['90GHz'] = ft.load_fits_table(filename_table1, id)
+lc['150GHz'] = ft.load_fits_table(filename_table2, id)
 
-ft.plot_stamps(images, headers)
+ft.plot_stamps_lc(images, headers, lc)
 
 
-
-#ft.plot_fits_data(images, lc)
+#ft.plot_fits_data(images['90GHz'], lc)
