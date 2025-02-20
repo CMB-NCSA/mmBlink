@@ -33,8 +33,13 @@ if __name__ == "__main__":
     headers = {}
 
     # Read in the stamps and load them into a dictionary
-    for stamp in args.stamp_files:
+    for k, stamp in enumerate(args.stamp_files):
         ima, hdr, id, band = ft.load_fits_stamp(stamp)
+        if k == 0:
+            old_id = id
+        # Make sure ids are the same
+        if id != old_id:
+            raise ValueError(f"Object ID are not the same {old_id}!={id}")
         images[band] = ima
         headers[band] = hdr
 
