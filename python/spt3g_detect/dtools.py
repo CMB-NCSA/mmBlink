@@ -28,7 +28,7 @@ import fitsio
 from astropy.wcs import WCS
 # from astropy.io import ascii
 from photutils.utils.exceptions import NoDetectionsWarning
-from spt3g_cutter import cutterlib
+import spt3g_detect.cutterlib as cutterlib
 
 import warnings
 # to ignore astropy NoDetectionsWarning
@@ -772,6 +772,9 @@ class detect_3gworker:
         self.lightcurve = lightcurve_dict
         self.config.id_names = cutterlib.get_id_names(ra, dec, prefix)
         self.config.obs_dict = cutterlib.get_obs_dictionary(lightcurve_dict)
+        # Pass the centroids to the class
+        self.ra_centroid = ra
+        self.dec_centroid = dec
 
     def repack_lc(self):
         """
@@ -828,17 +831,18 @@ class detect_3gworker:
         - OSError: If there are any issues during file operations (e.g., permission issues during removal).
         """
 
-        for stamp_name in self.cutout_names.keys():
+        for k, stamp_name in enumerate(self.cutout_names):
+            position = (self.ra_centroid[k], self.dec_centroid[k])
             for band in self.cutout_names[stamp_name].keys():
                 fitsfile = f"{self.config.outdir}/{stamp_name}_{band}.fits"
                 self.logger.info(f"Combining into: {fitsfile}")
                 filenames = self.cutout_names[stamp_name][band]
                 filenames.sort()
-                concatenate_fits(filenames, fitsfile, stamp_name, band)
+                concatenate_fits(filenames, fitsfile, stamp_name, band, position)
                 remove_files(filenames)
 
 
-def concatenate_fits(input_files, output_file, id, band):
+def concatenate_fits(input_files, output_file, id, band, position):
     """
     Concatenates a list of FITS files into a single multi-HDU FITS file.
     Each input FITS file has two extensions: SCI (Science) and WGT (Weight).
@@ -856,6 +860,8 @@ def concatenate_fits(input_files, output_file, id, band):
             'ID': id,
             'BAND': band,
             'NFILES': len(input_files),
+            'RA': position[0],
+            'DEC': position[1],
             'COMMENT': 'Concatenated FITS file'
         }
         fits_out.write(None, header=primary_header)

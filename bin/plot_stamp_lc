@@ -1,0 +1,48 @@
+#!/usr/bin/env python
+
+import spt3g_detect.ftools as ft
+import argparse
+
+
+def cmdline():
+    """
+    Parse command-line arguments to load and plot thumbnails and lightcurves
+
+    Returns:
+    - args (Namespace): The parsed command-line arguments.
+    """
+    parser = argparse.ArgumentParser(description="Load and plot thumbnails/stamps and lightcurves")
+    parser.add_argument("--stamp_files", nargs='+',
+                        help="Stamps filenames to plot")
+    parser.add_argument("--lc_files", nargs='+',
+                        help="lightcurve filenames to plot")
+    parser.add_argument("--plot_format", type=str, action='store', default="png",
+                        help="File format for plot: png, pdf, jpeg, tiff, svg, eps (default=png)")
+    # We want to add range of obsid to plot
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == "__main__":
+
+    # Get the command-line option
+    args = cmdline()
+
+    lightcurve = {}
+    images = {}
+    headers = {}
+
+    # Read in the stamps and load them into a dictionary
+    for stamp in args.stamp_files:
+        ima, hdr, id, band = ft.load_fits_stamp(stamp)
+        images[band] = ima
+        headers[band] = hdr
+
+    # Read in the lightcurve FITS table and load the corresponding lc for `id`
+    # into a dictionary
+    for lc_file in args.lc_files:
+        lc, band = ft.load_fits_table(lc_file, id)
+        lightcurve[band] = lc
+
+    # Plot
+    ft.plot_stamps_lc(images, headers, lightcurve, format=args.plot_format)

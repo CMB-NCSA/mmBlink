@@ -304,6 +304,7 @@ def load_fits_stamp(fits_file):
         primary_header = hdul[0].header
         nfiles = primary_header['NFILES']
         id = primary_header['ID']
+        band = primary_header['BAND']
 
         # Loop through the extensions to get SCI-n images
         for i in range(1, nfiles + 1):
@@ -313,7 +314,7 @@ def load_fits_stamp(fits_file):
                 images[obsid] = hdul[sci_ext_name].data
                 headers[obsid] = hdul[sci_ext_name].header
 
-    return images, headers, id
+    return images, headers, id, band
 
 
 def load_fits_table(fits_table_file, target_id):
@@ -328,8 +329,10 @@ def load_fits_table(fits_table_file, target_id):
     - dict: A dictionary containing the matching row with columns 'id', 'dates_ave', 'flux_SCI', and 'flux_WGT'.
     """
     with astropy.io.fits.open(fits_table_file) as hdul:
+
         table_data = hdul[1].data
         ids = table_data['id']
+        band = hdul[1].header['BAND']
 
         # Find the index where 'id' matches target_id
         match_index = np.where(ids == target_id)[0]
@@ -339,10 +342,10 @@ def load_fits_table(fits_table_file, target_id):
 
         # Extract row data
         row = table_data[match_index[0]]
-        return row
+        return row, band
 
 
-def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict):
+def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict, format="png"):
 
     bands = list(images_dict.keys())
     n_bands = len(bands)
@@ -425,16 +428,21 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict):
 
         # Convert the first MJD date to a calendar date using Astropy
         # start_date = Time(dates_ave[0], format='mjd').iso
-
         # Shift dates_ave to start from the first date
         # dates_ave = [date - dates_ave[0] for date in dates_ave]
 
-        # Figure out the error
+        # Plot with error bar
         ax1.errorbar(dates_ave, flux_SCI, yerr=1/np.sqrt(flux_WGT),
                      fmt='o', mfc=fcolor[band], mec='black',
-                     elinewidth=1, ecolor=fcolor[band], capsize=1)
+                     elinewidth=1, ecolor=fcolor[band], capsize=1,
+                     label=band)
+        ax1.legend(loc='upper left', frameon=True)
+        ax1.grid(color='black', linestyle='-.', linewidth=0.2)
         ax1.set_xlabel("Time[MJD]")
         ax1.set_ylabel('Flux [mJy]')
 
     fig.suptitle(f"{id}")
     plt.show()
+    file = f"{id}.{format}"
+    fig.savefig(file)
+    print(f"Plot saved to file: {file}")

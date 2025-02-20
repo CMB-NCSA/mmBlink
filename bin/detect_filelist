@@ -75,7 +75,6 @@ if __name__ == "__main__":
     - Matches detected sources across bands.
     - Generates output files including detection catalogs and cutouts.
     """
-
     # Start timing the script execution
     t0 = time.time()
 
