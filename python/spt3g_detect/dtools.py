@@ -735,8 +735,8 @@ class detect_3gworker:
         ra = cat['sky_centroid'].ra.data
         dec = cat['sky_centroid'].dec.data
 
-        xsize = 10
-        ysize = 10
+        xsize = self.config.stamp_size  # arcmin
+        ysize = self.config.stamp_size  # arcmin
         objID = None
         prefix = "SPT3G"
         outdir = self.config.outdir
@@ -1184,7 +1184,7 @@ def find_dual_detections(t1, t2, separation=20, plot=False):
     # Get the ids with max value
     value_max = np.array([t1[idxcat1]['max_value'], t2[idxcat2]['max_value']])
     obs_value = np.array([t1[idxcat1]['obs'], t2[idxcat2]['obs']])
-    value_max = value_max.max(axis=0)
+    max_value_max = value_max.max(axis=0)
     idmax = value_max.argmax(axis=0)
     obs_max = obs_value.T[0][idmax]
 
@@ -1208,7 +1208,7 @@ def find_dual_detections(t1, t2, separation=20, plot=False):
     stacked_centroids['ycentroid'] = yc_pix
     stacked_centroids['ncoords'] = ncoords
     stacked_centroids['obs_max'] = obs_max
-    stacked_centroids['max_value'] = value_max
+    stacked_centroids['max_value'] = max_value_max
     stacked_centroids['max_value'].info.format = '.2f'
     stacked_centroids['xcentroid'].info.format = '.2f'
     stacked_centroids['ycentroid'].info.format = '.2f'

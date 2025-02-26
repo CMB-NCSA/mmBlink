@@ -27,6 +27,8 @@ def cmdline():
                         help="Detection must be in both bands [90GHz, 150GHz]")
     parser.add_argument("--single_detection", action='store_true', default=False,
                         help="Detection per band alone")
+    parser.add_argument("--stamp_size", type=float, action='store', default=10,
+                        help="Size (in arcmin) of the stamps to be cut (default:10)")
     # Logging options (loglevel/log_format/log_format_date)
     default_log_format = '[%(asctime)s.%(msecs)03d][%(levelname)s][%(name)s][%(funcName)s] %(message)s'
     default_log_format_date = '%Y-%m-%d %H:%M:%S'
@@ -91,7 +93,7 @@ if __name__ == "__main__":
     # Source matching
     if args.multi_detection:
         stacked_centroids = d3w.match_dual_bands()
-        print("---------------------------- Done -------------------------")
+        print("---------------------------- Done dual band -------------------------")
         d3w.logger.info("Running unique centroids for [stacked_centroids]")
         stacked_centroids = du.find_unique_centroids(stacked_centroids, separation=args.max_sep, plot=args.plot)
     else:

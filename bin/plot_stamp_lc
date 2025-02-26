@@ -18,6 +18,10 @@ def cmdline():
                         help="lightcurve filenames to plot")
     parser.add_argument("--plot_format", type=str, action='store', default="png",
                         help="File format for plot: png, pdf, jpeg, tiff, svg, eps (default=png)")
+    parser.add_argument("--obsmin", type=int, default=None,
+                        help="Minimum observation ID to include in plot (default=None)")
+    parser.add_argument("--obsmax", type=int, default=None,
+                        help="Max observation ID to include in plot (default=None)")
     # We want to add range of obsid to plot
     args = parser.parse_args()
     return args
@@ -50,4 +54,7 @@ if __name__ == "__main__":
         lightcurve[band] = lc
 
     # Plot
-    ft.plot_stamps_lc(images, headers, lightcurve, format=args.plot_format)
+    ft.plot_stamps_lc(images, headers, lightcurve,
+                      obsmin=args.obsmin,
+                      obsmax=args.obsmax,
+                      format=args.plot_format)

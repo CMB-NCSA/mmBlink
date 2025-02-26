@@ -10,6 +10,7 @@ import re
 import os
 import copy
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from astropy.time import Time
 
 
@@ -345,7 +346,13 @@ def load_fits_table(fits_table_file, target_id):
         return row, band
 
 
-def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict, format="png"):
+def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
+                   obsmin=None, obsmax=None, format="png"):
+
+
+    # Use ScalarFormatter with useMathText=True for non-scientific notation
+    formatter = ticker.ScalarFormatter(useMathText=True)
+    formatter.set_scientific(False)
 
     bands = list(images_dict.keys())
     n_bands = len(bands)
@@ -357,6 +364,19 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict, format="png"):
             continue
         elif n_images != len(images_dict[band].keys()):
             raise ValueError(f"Mismatch of observations for band: {band}")
+
+    # Select index for obsid range
+    selected_IDs = np.asarray(list(selected_IDs))
+    i1 = 0
+    i2 = len(selected_IDs)
+
+    # In case we have obsmin and obsmax
+    if obsmin is not None:
+        i1 = np.where(selected_IDs >= obsmin)[0][0]
+        n_images = len(selected_IDs[i1:i2])
+    if obsmax is not None:
+        i2 = np.where(selected_IDs <= obsmax)[0][-1] + 1  # need to add +1 to slice
+        n_images = len(selected_IDs[i1:i2])
 
     # Horizontal (4%) and vertical (15%) space for margins
     hmargin = 0.04
@@ -377,7 +397,7 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict, format="png"):
     for band in bands:
         i = 0
         axs[j, 0].set_ylabel(f"{band}", size="medium")
-        for ID in selected_IDs:
+        for ID in selected_IDs[i1:i2]:
             image_data = images_dict[band][ID]
             header = headers_dict[band][ID]
             date_beg = header["DATE-BEG"]
@@ -422,9 +442,10 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict, format="png"):
     for band in lightcurve_dict.keys():
 
         id = lightcurve_dict[band]['id']
-        dates_ave = lightcurve_dict[band]['dates_ave']
-        flux_SCI = lightcurve_dict[band]['flux_SCI']
-        flux_WGT = lightcurve_dict[band]['flux_WGT']
+        dates_ave = lightcurve_dict[band]['dates_ave'][i1:i2]
+        flux_SCI = lightcurve_dict[band]['flux_SCI'][i1:i2]
+        flux_WGT = lightcurve_dict[band]['flux_WGT'][i1:i2]
+        # obsids = lightcurve_dict[band]['obsids'][i1:i2]
 
         # Convert the first MJD date to a calendar date using Astropy
         # start_date = Time(dates_ave[0], format='mjd').iso
@@ -440,6 +461,10 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict, format="png"):
         ax1.grid(color='black', linestyle='-.', linewidth=0.2)
         ax1.set_xlabel("Time[MJD]")
         ax1.set_ylabel('Flux [mJy]')
+
+    # Set the formatter for both axes
+    ax1.xaxis.set_major_formatter(formatter)
+    ax1.yaxis.set_major_formatter(formatter)
 
     fig.suptitle(f"{id}")
     plt.show()
