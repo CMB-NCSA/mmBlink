@@ -37,7 +37,7 @@ def g3_to_fits(g3file, trim=True, compress=False, quantize_level=16.0, overwrite
     - overwrite (bool): If True, overwrites an existing FITS file.
     """
     # Set the output name
-    fitsfile = g3file.split(".")[0] + ".fits"
+    basename = g3file.split(".")[0]
     # Get a g3 handle
     g3 = core.G3File(g3file)
     # Extract metadata that will augment the header
@@ -60,6 +60,12 @@ def g3_to_fits(g3file, trim=True, compress=False, quantize_level=16.0, overwrite
             hdr = maps.fitsio.create_wcs_header(frame['T'])
             hdr.update(metadata)
             hdr['UNITS'] = ('mJy', 'Data units')
+            band = frame['Id']
+            # We need to add band to the filename, so we have different outputs
+            if band in basename:
+                fitsfile = f"{basename}.fits"
+            else:
+                fitsfile = f"{basename}_{band}.fits"
             if trim:
                 field = metadata['FIELD'][0]
                 logger.info(f"Will write trimmed FITS file for field: {field}")
