@@ -324,7 +324,7 @@ def load_fits_stamp(fits_file):
     return images, headers, id, band
 
 
-def load_fits_table(fits_table_file, target_id):
+def load_fits_table(fits_table_file, target_id=None):
     """
     Load a FITS table and return the row matching the given 'id'.
 
@@ -338,23 +338,29 @@ def load_fits_table(fits_table_file, target_id):
     with astropy.io.fits.open(fits_table_file) as hdul:
 
         table_data = hdul[1].data
-        ids = table_data['id']
         band = hdul[1].header['BAND']
+        ids = table_data['id']
+
+        rows = []
+        if target_id:
+            target_ids = [target_id]
+        else:
+            target_ids = ids
 
         # Find the index where 'id' matches target_id
-        match_index = np.where(ids == target_id)[0]
+        for target_id in target_ids:
+            match_index = np.where(ids == target_id)[0]
+            if len(match_index) == 0:
+                raise ValueError(f"ID {target_id} not found in {fits_table_file}")
 
-        if len(match_index) == 0:
-            raise ValueError(f"ID {target_id} not found in {fits_table_file}")
-
-        # Extract row data
-        row = table_data[match_index[0]]
-        return row, band
+            # Extract row data and return data
+            row = table_data[match_index[0]]
+            rows.append(row)
+        return rows, band
 
 
 def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
-                   obsmin=None, obsmax=None, format="png"):
-
+                   obsmin=None, obsmax=None, format="png", outdir=""):
 
     # Use ScalarFormatter with useMathText=True for non-scientific notation
     formatter = ticker.ScalarFormatter(useMathText=True)
@@ -417,7 +423,7 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
             days = f"{days:.2f}"
 
             # axs[j, i].axis('off')
-            axs[j, i].imshow(image_data, origin='lower', cmap='viridis')
+            axs[j, i].imshow(image_data, origin='lower', cmap='viridis', vmin=-50, vmax=+50)
             axs[j, i].set_xticks([])
             axs[j, i].set_yticks([])
             axs[j, i].set_xticklabels([])
@@ -474,6 +480,7 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
 
     fig.suptitle(f"{id}")
     plt.show()
-    file = f"{id}.{format}"
+    du.create_dir(outdir)
+    file = os.path.join(outdir, f"{id}.{format}")
     fig.savefig(file)
     print(f"Plot saved to file: {file}")

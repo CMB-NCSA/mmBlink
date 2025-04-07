@@ -26,7 +26,7 @@ from spt3g import core, maps
 from spt3g import sources
 import fitsio
 from astropy.wcs import WCS
-# from astropy.io import ascii
+from astropy.io import ascii
 from photutils.utils.exceptions import NoDetectionsWarning
 import spt3g_detect.cutterlib as cutterlib
 
@@ -39,17 +39,18 @@ warnings.filterwarnings("ignore", category=NoDetectionsWarning)
 LOGGER = logging.getLogger(__name__)
 LOGGER.propagate = False
 
+PPRINT_KEYS = ['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
+               'kron_flux', 'kron_fluxerr', 'max_value',
+               'eccentricity', 'elongation', 'ellipticity', 'area']
+
 # Set matplotlib logger at warning level to disengable from default logger
 plt.set_loglevel(level='warning')
 
-
-# Naming template
-PREFIX = 'SPT3G'
-OBJ_ID = "{prefix}J{ra}{dec}"
-FITS_OUTNAME = "{outdir}/{objID}_{obsid}_{filter}.{ext}"
-LOG_OUTNAME = "{outdir}/{objID}.{ext}"
-BASE_OUTNAME = "{objID}"
-BASEDIR_OUTNAME = "{outdir}/{objID}"
+# Update objid, file naming convention
+cutterlib.FITS_OUTNAME = "{outdir}/{objID}_{obsid}_{filter}.{ext}"
+cutterlib.OBJ_ID = "{prefix}_J{ra}{dec}"
+cutterlib.BASEDIR_OUTNAME = "{outdir}/{objID}"
+cutterlib.FITS_LC_OUTNAME = "{outdir}/lightcurve_{filter}.{ext}"
 
 
 class detect_3gworker:
@@ -437,9 +438,20 @@ class detect_3gworker:
         # fits.write(self.flux_mask[key])
         # fits.close()
 
-        # Remove objects that match the sources catalog for that field
         if self.cat[key] is not None:
+            # Remove objects that match the sources catalog for that field
             self.cat[key] = remove_objects_near_sources(self.cat[key], field)
+
+            # Cut in ellipticity
+            inds_ell = np.where(self.cat[key]['ellipticity'] >= self.config.ell_cut)[0]
+            nr = len(inds_ell)
+            if nr > 0:
+                catsize = len(self.cat[key])
+                self.logger.info(f"Removing {nr} source with ellipticity >= {self.config.ell_cut}")
+                self.logger.debug("Will remove:")
+                if self.logger.getEffectiveLevel() == logging.DEBUG:
+                    print(self.cat[key][PPRINT_KEYS][inds_ell])
+                self.cat[key] = self.cat[key][~np.isin(np.arange(catsize), inds_ell)]
 
         # if no detections (i.e. None) or no objecs in catalog (i.e. all objects were removed)
         # we remove it from dictionaries
@@ -452,9 +464,6 @@ class detect_3gworker:
             self.cat[key].meta['band'] = self.header[key]['BAND']
             self.cat[key].meta['obsID'] = self.header[key]['OBSID']
             self.cat[key].meta['field'] = self.header[key]['FIELD']
-            # Here is a good place to plot detections -- experimental
-            # self.logger.info(f"Writing thumbnails for {key}")
-            # self.write_thumbnails_fitsio(key)
             # catname = f"{key}.cat"
             # ascii.write(self.cat[key]['label', 'xcentroid', 'ycentroid', 'sky_centroid', 'sky_centroid_dms',
             #             'kron_flux', 'kron_fluxerr', 'max_value', 'elongation', 'ellipticity', 'area'],
@@ -684,7 +693,7 @@ class detect_3gworker:
             h_section = cutterlib.update_wcs_matrix(hdr, x1, y1)
             # Construct the name of the Thumbmail using BAND/FILTER/prefix/etc
             ra, dec = wcs.wcs_pix2world(x0, y0, 1)
-            objID = cutterlib.get_thumbBaseName(ra, dec, prefix='SPT')
+            objID = cutterlib.get_thumbBaseName(ra, dec, prefix=self.config.prefix)
             outname = cutterlib.get_thumbFitsName(ra, dec, hdr['BAND'], hdr['OBSID'],
                                                   objID=objID, prefix='SPT', outdir=".")
             ofits = fitsio.FITS(outname, 'rw', clobber=clobber)
@@ -722,10 +731,6 @@ class detect_3gworker:
             - The cutouts are stored in dictionaries `cutout_dict`,
               `rejected_dict`, and `lightcurve_dict`.
         """
-        # Update file naming convention
-        cutterlib.FITS_OUTNAME = "{outdir}/{objID}_{obsid}_{filter}.{ext}"
-        cutterlib.OBJ_ID = "{prefix}_J{ra}{dec}"
-        cutterlib.BASEDIR_OUTNAME = "{outdir}/{objID}"
 
         cutout_dict = {}
         rejected_dict = {}
@@ -737,9 +742,9 @@ class detect_3gworker:
 
         xsize = self.config.stamp_size  # arcmin
         ysize = self.config.stamp_size  # arcmin
-        objID = None
-        prefix = "SPT3G"
+        prefix = self.config.prefix
         outdir = self.config.outdir
+        objID = None  # set to None so it's done automatically
         get_lightcurve = True
         get_uniform_coverage = False
         no_fits = False
@@ -802,8 +807,6 @@ class detect_3gworker:
              `repack_lightcurve_band_filetype` function from `cutterlib`
              to write the FITS files.
         """
-        # Update file naming convention
-        cutterlib.FITS_LC_OUTNAME = "{outdir}/lightcurve_{filter}.{ext}"
         for BAND in self.files.keys():
             FILETYPE = 'None'
             ar = (self.lightcurve, BAND, FILETYPE, self.config)
@@ -840,6 +843,25 @@ class detect_3gworker:
                 filenames.sort()
                 concatenate_fits(filenames, fitsfile, stamp_name, band, position)
                 remove_files(filenames)
+
+    def write_centroids(self, catalog):
+
+        # Extract ra and dec from cat:
+        ra = catalog['sky_centroid'].ra.data
+        dec = catalog['sky_centroid'].dec.data
+        ids = cutterlib.get_id_names(ra, dec, self.config.prefix)
+        catalog.add_column(ids, name='id', index=0)
+
+        catname = os.path.join(self.config.outdir, "centroids.cat")
+        CAT_KEYS = ['index', 'id', 'band', 'label',
+                    'obs_max', 'obs',
+                    'xcentroid', 'ycentroid',
+                    'sky_centroid', 'sky_centroid_dms',
+                    'kron_flux', 'kron_fluxerr', 'max_value',
+                    'elongation', 'ellipticity', 'area', 'ncoords']
+        ascii.write(catalog[CAT_KEYS],
+                    catname, overwrite=True, format='fixed_width')
+        self.logger.info(f"Wrote catalog to: {catname}")
 
 
 def concatenate_fits(input_files, output_file, id, band, position):
@@ -1255,6 +1277,7 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
     labelIDs = list(table_centroids.keys())
     if len(labelIDs) < 2:
         logger.warning("Will not run find_unique_centroids() -- < 2 catalogs to match!")
+        logger.warning(f"labelIDs: {labelIDs}")
         # Return the 1st and only element in the dictionary
         return table_centroids[labelIDs[0]]
 
@@ -1262,7 +1285,7 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         # Select current and next table IDs
         label1 = labelIDs[k]
         label2 = labelIDs[k+1]
-        logger.info(f"Doing: {k+1}/{len(labelIDs)-2}")
+        logger.info(f"Doing: {k+1}/{len(labelIDs)-1}")
 
         # Extract the catalogs (i.e. SkyCoord objects) for search_around_sky
         # and make shorcuts of tables
@@ -1804,7 +1827,7 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     tbl['ellipticity'].info.format = '.2f'
     tbl['eccentricity'].info.format = '.2f'
     tbl['sky_centroid_dms'] = tbl['sky_centroid'].to_string('hmsdms', precision=0)
-    print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
+    print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid', 'sky_centroid_dms',
               'kron_flux', 'kron_fluxerr', 'max_value',
               'eccentricity', 'elongation', 'ellipticity', 'area'])
     if plot:
@@ -2072,6 +2095,9 @@ def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
     inds1, inds2, dist, _ = search_around_sky(cat1, pscat, max_dist)
     if len(inds1) > 0:
         LOGGER.info(f"Found {len(inds1)} matches, will remove them from catalog")
+        LOGGER.debug("Will remove: ")
+        if LOGGER.getEffectiveLevel() == logging.DEBUG:
+            print(cat[PPRINT_KEYS][inds1])
         cat = cat[~np.isin(np.arange(cat1.size), inds1)]
     else:
         LOGGER.info("No matches found in sources catalog")
