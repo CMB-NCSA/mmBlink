@@ -21,8 +21,9 @@ def cmdline():
 
     parser.add_argument("--field", type=str, action='store', default=None,
                         help="Field name (i.e. SourceName) for automatically determining point source file to use.")
-    parser.add_argument("--bands",  nargs='+', action='store', default=['90GHz', '150GHz'],
-                        help="List of bands to use [90GHz, 150GHz, 200GHz]")
+    parser.add_argument("--detect_bands",  nargs='+', action='store', default=['90GHz', '150GHz'],
+                        help="List of bands where will run source detection \
+                              [i.e.: 90GHz, 150GHz, 200GHz], (default=90GHz 150GHx")
     parser.add_argument("--multi_detection", action='store_true', default=False,
                         help="Detection must be in both bands [90GHz, 150GHz]")
     parser.add_argument("--single_detection", action='store_true', default=False,
@@ -55,7 +56,7 @@ def cmdline():
     parser.add_argument("--max_sep", action='store', type=float, default=20.0,
                         help="Maximum angular separation to match sources in arcsec")
     parser.add_argument("--ell_cut", action='store', type=float, default=0.3,
-                        help="Ellipticity cut")
+                        help="Ellipticity cut [default=0.3]")
     parser.add_argument("--plot", action='store_true', default=False,
                         help="Plot detection diagnostics?")
     parser.add_argument("--nr", action="store", default=1, type=int,
@@ -70,14 +71,13 @@ def cmdline():
     if args.multi_detection == args.single_detection:
         raise ValueError("Must set --multi_detection or --single_detection")
 
-    args.bands.sort()
+    args.detect_bands.sort()
     return args
 
 
 if __name__ == "__main__":
     """
     Main execution script for running transient detection on SPT-3G data.
-
     - Parses command-line arguments.
     - Runs the detection pipeline.
     - Matches detected sources across bands.
@@ -85,47 +85,52 @@ if __name__ == "__main__":
     """
     # Start timing the script execution
     t0 = time.time()
-
     # Parse command-line arguments
     args = cmdline()
-
     # Initialize detection worker with parsed arguments
-    d3w = du.detect_3gworker(**args.__dict__)
-
+    g3d = du.g3detect(**args.__dict__)
     # Run the detection on input files
-    d3w.run_detection_files()
-    d3w.logger.info(f"Total time: {du.elapsed_time(t0)} for [run_detection_files]")
+    g3d.run_detection_files()
 
     # Source matching
     if args.multi_detection:
-        stacked_centroids = d3w.match_dual_bands()
+        # Match sources in both bands per observation
+        stacked_centroids = g3d.match_dual_bands()
         print("---------------------------- Done dual band -------------------------")
-        d3w.logger.info("Running unique centroids for [stacked_centroids]")
+        g3d.logger.info("Running unique centroids for [stacked_centroids]")
         stacked_centroids = du.find_unique_centroids(stacked_centroids, separation=args.max_sep, plot=args.plot)
     else:
-        # Extract unique detections
-        stacked_centroids = du.find_unique_centroids(d3w.cat, separation=args.max_sep, plot=args.plot)
+        # Extract the unique detections per band we used
+        centroids = g3d.get_unique_centroids_per_band()
+        stacked_centroids = du.find_unique_centroids(centroids, separation=args.max_sep, plot=args.plot)
+        #stacked_centroids = du.find_unique_centroids(g3d.cat, separation=args.max_sep, plot=args.plot)
+        stacked_centroids = du.remove_non_repeat_sources(stacked_centroids, ncoords=args.nr)
 
     # Write the catalog of centroids
-    d3w.write_centroids(stacked_centroids)
+    g3d.write_centroids(stacked_centroids)
+    for band in args.detect_bands:
+        print(f"--- BAND --- {band}")
+        print(centroids[band])
+        print(band)
+        g3d.write_centroids(centroids[band], band=band)
 
     # Generate cutouts and repack results
-    d3w.run_cutouts(stacked_centroids)
-    d3w.repack_lc()
-    d3w.repack_stamps()
+    g3d.run_cutouts(stacked_centroids)
+    g3d.repack_lc()
+    g3d.repack_stamps()
     print(f"Grand total time: {du.elapsed_time(t0)}")
 
     exit()
 
     # Example 1, find all positions
-    stacked_centroids = du.find_unique_centroids(d3w.cat, separation=args.max_sep, plot=args.plot)
+    stacked_centroids = du.find_unique_centroids(g3d.cat, separation=args.max_sep, plot=args.plot)
     # print("stacked_centroids:")
     # print(stacked_centroids)
     print(f"Total time: {du.elapsed_time(t0)}")
     exit()
 
     # Example 2: Find repeating sources across observations
-    table_centroids = du.find_repeating_sources(d3w.cat, separation=args.max_sep, plot=args.plot, outdir=args.outdir)
+    table_centroids = du.find_repeating_sources(g3d.cat, separation=args.max_sep, plot=args.plot, outdir=args.outdir)
     stacked_centroids = du.find_unique_centroids(table_centroids, separation=args.max_sep, plot=args.plot)
     print("stacked_centroids:")
     print(stacked_centroids)
