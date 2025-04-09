@@ -24,10 +24,10 @@ def cmdline():
     parser.add_argument("--detect_bands",  nargs='+', action='store', default=['90GHz', '150GHz'],
                         help="List of bands where will run source detection \
                               [i.e.: 90GHz, 150GHz, 200GHz], (default=90GHz 150GHx")
-    parser.add_argument("--multi_detection", action='store_true', default=False,
+    parser.add_argument("--dual_detection", action='store_true', default=False,
                         help="Detection must be in both bands [90GHz, 150GHz]")
-    parser.add_argument("--single_detection", action='store_true', default=False,
-                        help="Detection per band alone")
+    # parser.add_argument("--single_detection", action='store_true', default=True,
+    #                     help="Detection is done per band alone")
     parser.add_argument("--stamp_size", type=float, action='store', default=10,
                         help="Size (in arcmin) of the stamps to be cut (default:10)")
     parser.add_argument("--prefix", type=str, action='store', default="SPT3G",
@@ -68,9 +68,8 @@ def cmdline():
                         help="The number of threads used by numexpr 0=automatic, 1=single [default]")
 
     args = parser.parse_args()
-    if args.multi_detection == args.single_detection:
-        raise ValueError("Must set --multi_detection or --single_detection")
-
+    # if args.dual_detection == args.single_detection:
+    #     raise ValueError("Must set --dual_detection or --single_detection")
     args.detect_bands.sort()
     return args
 
@@ -89,37 +88,18 @@ if __name__ == "__main__":
     args = cmdline()
     # Initialize detection worker with parsed arguments
     g3d = du.g3detect(**args.__dict__)
-    # Run the detection on input files
+    # Run the detection on all input files that match detection bands
     g3d.run_detection_files()
 
     # Source matching
-    if args.multi_detection:
-        # Match sources in both bands per observation
-        stacked_centroids = g3d.match_dual_bands()
-        print("---------------------------- Done dual band -------------------------")
-        g3d.logger.info("Running unique centroids for [stacked_centroids]")
-        stacked_centroids = du.find_unique_centroids(stacked_centroids, separation=args.max_sep, plot=args.plot)
+    if args.dual_detection:
+        g3d.collect_dual()
     else:
         # Extract the unique detections per band we used
-        centroids = g3d.get_unique_centroids_per_band()
-        stacked_centroids = du.find_unique_centroids(centroids, separation=args.max_sep, plot=args.plot)
-        #stacked_centroids = du.find_unique_centroids(g3d.cat, separation=args.max_sep, plot=args.plot)
-        stacked_centroids = du.remove_non_repeat_sources(stacked_centroids, ncoords=args.nr)
+        g3d.collect_single()
 
-    # Write the catalog of centroids
-    g3d.write_centroids(stacked_centroids)
-    for band in args.detect_bands:
-        print(f"--- BAND --- {band}")
-        print(centroids[band])
-        print(band)
-        g3d.write_centroids(centroids[band], band=band)
-
-    # Generate cutouts and repack results
-    g3d.run_cutouts(stacked_centroids)
-    g3d.repack_lc()
-    g3d.repack_stamps()
+    g3d.make_stamps_and_lighcurves()
     print(f"Grand total time: {du.elapsed_time(t0)}")
-
     exit()
 
     # Example 1, find all positions
