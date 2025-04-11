@@ -368,15 +368,22 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
 
     bands = list(images_dict.keys())
     n_bands = len(bands)
+    # Sorting gymastics for bands when 90Ghz is present
+    if '90GHz' in bands:
+        bands = replace_element(bands, '90GHz', '090GHz')
+        bands.sort(reverse=True)
+        bands = replace_element(bands, '090GHz', '90GHz')
+
     # Make sure that all dictionaries have same number of observations
-    for k, band in enumerate(images_dict):
+    k = 0
+    for band in bands:
         if k == 0:
             selected_IDs = images_dict[band].keys()
             n_images = len(selected_IDs)
             continue
         elif n_images != len(images_dict[band].keys()):
             raise ValueError(f"Mismatch of observations for band: {band}")
-
+        k = k + 1
     # Select index for obsid range
     selected_IDs = np.asarray(list(selected_IDs))
     i1 = 0
@@ -449,10 +456,17 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
     fcolor = {}
     fcolor['90GHz'] = 'red'
     fcolor['150GHz'] = 'blue'
+    fcolor['220GHz'] = 'yellow'
+
+    # Sorting gymastics for bands when 90Ghz is present
+    bands = list(lightcurve_dict.keys())
+    if '90GHz' in bands:
+        bands = replace_element(bands, '90GHz', '090GHz')
+        bands.sort(reverse=True)
+        bands = replace_element(bands, '090GHz', '90GHz')
 
     # Loop over all band in lightcurve
-    for band in lightcurve_dict.keys():
-
+    for band in bands:
         id = lightcurve_dict[band]['id']
         dates_ave = lightcurve_dict[band]['dates_ave'][i1:i2]
         flux_SCI = lightcurve_dict[band]['flux_SCI'][i1:i2]
@@ -484,3 +498,18 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
     file = os.path.join(outdir, f"{id}.{format}")
     fig.savefig(file)
     print(f"Plot saved to file: {file}")
+
+
+def replace_element(my_list, old_element, new_element):
+    """
+    Replaces an element in a list if it exists.
+
+    Args:
+        my_list: The list to modify.
+        old_element: The element to replace.
+        new_element: The new element to insert.
+    """
+    if old_element in my_list:
+        index = my_list.index(old_element)
+        my_list[index] = new_element
+    return my_list

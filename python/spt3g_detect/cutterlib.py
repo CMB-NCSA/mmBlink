@@ -210,13 +210,13 @@ def check_inputs(ra, dec, xsize, ysize, objID=None):
 
     """ Check and fix inputs for cutout"""
     # Make sure that RA,DEC are the same type
-    if type(ra) != type(dec):
+    if type(ra) is not type(dec):
         raise TypeError('RA and DEC need to be the same type()')
 
-    if objID is not None and type(objID) != type(ra):
+    if objID is not None and type(objID) is not type(ra):
         raise TypeError('objID needs to be the same type() as RA,DEC')
 
-    if type(xsize) != type(ysize):
+    if type(xsize) is not type(ysize):
         raise TypeError('XSIZE and YSIZE need to be the same type()')
     # Make them iterable and proper length
     if hasattr(ra, '__iter__') is False and hasattr(dec, '__iter__') is False:
@@ -430,7 +430,7 @@ def fitscutter(filename, ra, dec, cutout_names, rejected_names, lightcurve,
     # Check and fix inputs
     ra, dec, xsize, ysize, objID = check_inputs(ra, dec, xsize, ysize, objID)
 
-    logger.info(f"Will cut: {len(ra)} stamps from FITS file: {filename} -- {counter}")
+    logger.debug(f"Will cut: {len(ra)} stamps from FITS file: {filename} -- {counter}")
 
     # Check for the units
     if units == 'arcsec':
@@ -661,7 +661,6 @@ def fitscutter(filename, ra, dec, cutout_names, rejected_names, lightcurve,
                 cutout_names[objID[k]][band] = []
             # cutout_names[objID[k]][band].append(outname.replace(f"{outdir}/", ''))
             cutout_names[objID[k]][band].append(outname)
-
 
         # Write out the file
         t0 = time.time()

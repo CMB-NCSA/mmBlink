@@ -23,11 +23,11 @@ def cmdline():
                         help="Field name (i.e. SourceName) for automatically determining point source file to use.")
     parser.add_argument("--detect_bands",  nargs='+', action='store', default=['90GHz', '150GHz'],
                         help="List of bands where will run source detection \
-                              [i.e.: 90GHz, 150GHz, 200GHz], (default=90GHz 150GHx")
+                              [i.e.: 90GHz, 150GHz, 200GHz], (default=90GHz 150GHz")
     parser.add_argument("--dual_detection", action='store_true', default=False,
                         help="Detection must be in both bands [90GHz, 150GHz]")
-    # parser.add_argument("--single_detection", action='store_true', default=True,
-    #                     help="Detection is done per band alone")
+    parser.add_argument("--write_obscat", action='store_true', default=False,
+                        help="Write out the catalogs for each obsID/band")
     parser.add_argument("--stamp_size", type=float, action='store', default=10,
                         help="Size (in arcmin) of the stamps to be cut (default:10)")
     parser.add_argument("--prefix", type=str, action='store', default="SPT3G",
@@ -58,9 +58,11 @@ def cmdline():
     parser.add_argument("--ell_cut", action='store', type=float, default=0.3,
                         help="Ellipticity cut [default=0.3]")
     parser.add_argument("--plot", action='store_true', default=False,
-                        help="Plot detection diagnostics?")
+                        help="Make plots with detection diagnostics?")
     parser.add_argument("--nr", action="store", default=1, type=int,
                         help="N-repeat, number of times source repeats [default=1]")
+    parser.add_argument("--point_source_file", action='store', default=None,
+                        help="User provided point source file to use for masking [default=None]")
     # Use multiprocessing
     parser.add_argument("--np", action="store", default=1, type=int,
                         help="Run using multi-process, 0=automatic, 1=single-process [default]")
@@ -93,6 +95,7 @@ if __name__ == "__main__":
 
     # Source matching
     if args.dual_detection:
+        # Dual matching, source should be detected in both bands per OBSID
         g3d.collect_dual()
     else:
         # Extract the unique detections per band we used

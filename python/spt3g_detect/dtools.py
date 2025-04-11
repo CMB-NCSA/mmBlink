@@ -39,7 +39,7 @@ warnings.filterwarnings("ignore", category=NoDetectionsWarning)
 LOGGER = logging.getLogger(__name__)
 LOGGER.propagate = False
 
-PPRINT_KEYS = ['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
+PPRINT_KEYS = ['label', 'xcentroid', 'ycentroid', 'sky_centroid', 'sky_centroid_dms',
                'max_value', 'ellipticity', 'area']
 
 
@@ -146,7 +146,6 @@ class g3detect:
             self.files = manager.dict()
             self.cat = manager.dict()
             self.centroids = manager.dict()
-            self.bcat = manager.dict()
             for band in self.config.detect_bands:
                 self.cat[band] = manager.dict()
         else:
@@ -159,7 +158,6 @@ class g3detect:
             self.files = {}
             # Catalogs per band
             self.cat = {}
-            self.bcat = {}
             self.centroids = {}
             for band in self.config.detect_bands:
                 self.cat[band] = {}
@@ -278,11 +276,6 @@ class g3detect:
             # only read in the map
             if frame.type != core.G3FrameType.Map:
                 continue
-            # band = frame['Id']
-            # if band not in self.config.bands:
-            #    self.logger.info(f"Skipping file: {filename}, not in --bands {self.config.bands}")
-            #    continue
-
             if 'ObservationID' not in frame:
                 self.logger.info(f"Setting ObservationID to: {obsID}")
                 frame['ObservationID'] = obsID
@@ -311,11 +304,6 @@ class g3detect:
         # Get header/extensions/hdu
         t0 = time.time()
         header, hdunum = cutterlib.get_headers_hdus(filename)
-        # band = header['SCI']['BAND']
-        # if band not in self.config.bands:
-        #    self.logger.info(f"Skipping file: {filename}, not in --bands {self.config.bands}")
-        #    return []
-
         key = f"{header['SCI']['OBSID']}_{header['SCI']['BAND']}"
         self.logger.info(f"Setting observation key as: {key}")
         self.logger.debug(f"Done Getting header, hdus: {elapsed_time(t0)}")
@@ -405,7 +393,7 @@ class g3detect:
             self.obsIDs.append(obsID)
         return key
 
-    def detect_with_photutils_key(self, key):
+    def detect_with_photutils_key(self, key, write=False):
         """
         Detect sources in the map for a given key using Photutils.
 
@@ -442,7 +430,7 @@ class g3detect:
 
         if cat is not None:
             # Remove objects that match the sources catalog for that field
-            cat = remove_objects_near_sources(cat, field)
+            cat = remove_objects_near_sources(cat, field, self.config.point_source_file)
 
             # Cut in ellipticity
             inds_ell = np.where(cat['ellipticity'] >= self.config.ell_cut)[0]
@@ -456,21 +444,21 @@ class g3detect:
                 cat = cat[~np.isin(np.arange(catsize), inds_ell)]
 
         # if no detections (i.e. None) or no objecs in catalog (i.e. all objects were removed)
-        # we remove it from dictionaries
+        # we wont pass it up to the dictionary of catalogs (self.cat)
         if cat is None or len(cat) == 0:
             self.logger.info(f"Will not include key: {key} from catalog dictionary ")
-            #  del self.cat[key]
-            #  del self.segm[key]
+            del cat
         else:
             # Add metadata to the catalog we just created
             cat.meta['band'] = band
             cat.meta['obsID'] = obsID
             cat.meta['field'] = field
-            # catname = f"{key}.cat"
-            # ascii.write(cat['label', 'xcentroid', 'ycentroid', 'sky_centroid', 'sky_centroid_dms',
-            #             'kron_flux', 'kron_fluxerr', 'max_value', 'elongation', 'ellipticity', 'area'],
-            #             catname, overwrite=True, format='fixed_width')
-            # self.logger.info(f"Wrote catalog to: {catname}")
+
+            # Write out obsID+band catalogs if we want
+            if self.config.write_obscat:
+                catname = os.path.join(self.config.outdir, f"{key}.cat")
+                ascii.write(cat[PPRINT_KEYS], catname, overwrite=True, format='fixed_width')
+                self.logger.info(f"Wrote catalog to: {catname}")
             # Store the bands for obsID that was catalogued
             if obsID not in self.bands:
                 self.bands[obsID] = []
@@ -674,10 +662,13 @@ class g3detect:
     def collect_dual(self):
         # Function to collect and match sources in dual detection
         self.match_dual_bands()
-        self.logger.info("Running unique centroids for dual")
+        self.logger.info("Running unique centroids for dual matching per obsID")
         self.stacked_centroids = find_unique_centroids(self.matched_cat,
                                                        separation=self.config.max_sep,
                                                        plot=False)
+        # Remove non repeat sources
+        self.stacked_centroids = remove_non_repeat_sources(self.stacked_centroids,
+                                                           ncoords=self.config.nr)
         # Write catalogs with centroids
         self.write_centroids(self.stacked_centroids)
         return
@@ -697,14 +688,17 @@ class g3detect:
         self.stacked_centroids = find_unique_centroids(self.centroids,
                                                        separation=self.config.max_sep,
                                                        plot=False)
-        # Write catalogs with centroids
+        # Remove non repeat sources
+        self.stacked_centroids = remove_non_repeat_sources(self.stacked_centroids,
+                                                           ncoords=self.config.nr)
+        # Write catalogs with centroids and per band
         self.write_centroids(self.stacked_centroids)
         for band in self.config.detect_bands:
             self.write_centroids(self.centroids[band], band=band)
         return
 
     def make_stamps_and_lighcurves(self):
-        # Generate cutouts and repack results
+        # Generate cutouts and repack stamps and lightcurve results
         self.run_cutouts(self.stacked_centroids)
         self.repack_lc()
         self.repack_stamps()
@@ -894,11 +888,12 @@ class g3detect:
         - OSError: If there are any issues during file operations (e.g., permission issues during removal).
         """
 
+        self.logger.info("Repacking stamps into single file per source")
         for k, stamp_name in enumerate(self.cutout_names):
             position = (self.ra_centroid[k], self.dec_centroid[k])
             for band in self.cutout_names[stamp_name].keys():
                 fitsfile = f"{self.config.outdir}/{stamp_name}_{band}.fits"
-                self.logger.info(f"Combining into: {fitsfile}")
+                self.logger.debug(f"Combining into: {fitsfile}")
                 filenames = self.cutout_names[stamp_name][band]
                 filenames.sort()
                 concatenate_fits(filenames, fitsfile, stamp_name, band, position)
@@ -922,11 +917,31 @@ class g3detect:
             catalog.add_column(ids, name='id', index=0)
         if band:
             catname = os.path.join(self.config.outdir, f"centroids_{band}.cat")
+            msg = f"Wrote {band} catalog to: {catname}"
         else:
             catname = os.path.join(self.config.outdir, "centroids.cat")
+            msg = f"Wrote combined catalog to: {catname}"
         ascii.write(catalog[CAT_KEYS],
                     catname, overwrite=True, format='fixed_width')
-        self.logger.info(f"Wrote catalog to: {catname}")
+        self.logger.info(msg)
+
+
+def remove_non_repeat_sources(catalog, ncoords=1):
+    # Remove entries from catalog with ncoords <= nr
+    if ncoords > 1:
+        inds = np.where(catalog['ncoords'] >= ncoords)[0]
+        catsize = len(catalog)
+        nk = len(inds)  # N keep
+        nr = catsize - nk  # N remove
+        if nr > 0:
+            LOGGER.info(f"Removing {nr} sources with ncoords < {ncoords}")
+            cutcat = catalog[inds]
+        else:
+            cutcat = catalog
+    else:
+        LOGGER.warning(f"Will not remove non-repeats ncoords <= 1: ncoords: {ncoords}")
+        cutcat = catalog
+    return cutcat
 
 
 def concatenate_fits(input_files, output_file, id, band, position):
@@ -969,7 +984,7 @@ def concatenate_fits(input_files, output_file, id, band, position):
                 wgt_header = fits_in[wgt_hdu].read_header()
                 fits_out.write(wgt_data, header=wgt_header, extname=f"WGT_{idx+1}")
 
-        LOGGER.info(f"Successfully created {output_file} with {len(input_files) * 2} extensions.")
+        LOGGER.debug(f"Successfully created {output_file} with {len(input_files) * 2} extensions.")
 
 
 def remove_files(filelist, remove_parents=True):
@@ -1011,7 +1026,7 @@ def remove_files(filelist, remove_parents=True):
             except Exception as e:
                 LOGGER.error(f"Error removing directory {parent_dir}: {e}")
 
-    LOGGER.info("Files removed" + (", including empty directories" if remove_parents else ""))
+    LOGGER.debug("Files removed" + (", including empty directories" if remove_parents else ""))
 
 
 def configure_logger(logger, logfile=None, level=logging.NOTSET, log_format=None, log_format_date=None):
@@ -1783,8 +1798,9 @@ def compute_rms2D(data, mask=None, box=200, filter_size=(3, 3), sigmaclip=None):
 
 
 def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=20,
-                          rms2D=False, rms2Dimage=False, box=(200, 200), filter_size=(3, 3), sigmaclip=None,
-                          wcs=None, plot=False, plot_title=None, plot_name=None):
+                          rms2D=False, rms2Dimage=False, box=(200, 200),
+                          filter_size=(3, 3), sigmaclip=None, wcs=None,
+                          plot=False, plot_title=None, plot_name=None):
     """
     Use photutils SourceFinder and SourceCatalog to create a catalog of sources.
 
@@ -2065,12 +2081,21 @@ def plot_distribution(ax, data, mean, sigma, nsigma=3):
     if data.ndim != 1:
         data = data.flatten()
 
+    xmin = data.min()
+    xmax = data.max()
+    # Cut xmin and ymax at 10sigma for plotting
+    if xmin < -10*sigma:
+        xmin = -10*sigma
+    if xmax > 10*sigma:
+        xmax = 10*sigma
+
     legend = "$\\mu$: %.6f\n$\\sigma$: %.6f" % (mean, sigma)
     # Plot data and fit
     nbins = int(data.shape[0]/5000.)
-    hist = ax.hist(data, bins=nbins, density=True, alpha=0.6)
+    hist = ax.hist(data, range=(xmin, xmax), bins=nbins, density=True, alpha=0.6)
     ymin, ymax = hist[0].min(), hist[0].max()
     xmin, xmax = hist[1].min(), hist[1].max()
+
     x = np.linspace(xmin, xmax, 100)
     y = norm.pdf(x, mean, sigma)
     ax.plot(x, y)
@@ -2093,7 +2118,7 @@ def plot_distribution(ax, data, mean, sigma, nsigma=3):
     ax.set_title("1D Noise Distribution and Fit")
 
 
-def get_sources_catalog(field):
+def get_sources_catalog(field, point_source_file=None):
     """
     Retrieve the sources catalog for a given field.
 
@@ -2112,7 +2137,8 @@ def get_sources_catalog(field):
         >>> sources_catalog = get_sources_catalog('field_name')
     """
     # Get the catalog with masked sources
-    point_source_file = sources.get_field_source_list(field, analysis="lightcurve")
+    if point_source_file is None:
+        point_source_file = sources.get_field_source_list(field, analysis="lightcurve")
     _, psra, psdec, __ = sources.read_point_source_mask_file(point_source_file)
     LOGGER.debug(f"Loading source mask positions from file: {point_source_file}")
     # Create a SkyCoord object with the sources catalog to make the matching
@@ -2123,7 +2149,7 @@ def get_sources_catalog(field):
     return pscat
 
 
-def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
+def remove_objects_near_sources(cat, field, point_source_file=None, max_dist=5*u.arcmin):
     """
     Remove objects from an Astropy catalog that are near sources in a sources catalog.
 
@@ -2146,7 +2172,7 @@ def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
     """
     # Get a astropy SkyCoord object catalog to match
     try:
-        pscat = get_sources_catalog(field)
+        pscat = get_sources_catalog(field, point_source_file)
     except KeyError:
         LOGGER.warning(f"Cannot get sources catalog for field: {field}")
         return cat
@@ -2163,25 +2189,6 @@ def remove_objects_near_sources(cat, field, max_dist=5*u.arcmin):
     else:
         LOGGER.info("No matches found in sources catalog")
     return cat
-
-
-def remove_non_repeat_sources(catalog, ncoords=1):
-    # Remove entries from catalog with ncoords <= nr
-
-    if ncoords > 1:
-        inds = np.where(catalog['ncoords'] >= ncoords)[0]
-        catsize = len(catalog)
-        nk = len(inds)  # N keep
-        nr = catsize - nk  # N remove
-        if nr > 0:
-            LOGGER.info(f"Removing {nr} sources with ncoords < {ncoords}")
-            cutcat = catalog[inds]
-        else:
-            cutcat = catalog
-    else:
-        LOGGER.warning(f"Will not remove non-repeats ncoords <= 1: ncoords: {ncoords}")
-        cutcat = catalog
-    return cutcat
 
 
 def astropy2fitsio_header(header):

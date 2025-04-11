@@ -12,8 +12,8 @@ def cmdline():
     - args (Namespace): The parsed command-line arguments.
     """
     parser = argparse.ArgumentParser(description="Load and plot thumbnails/stamps and lightcurves")
-    parser.add_argument("--stamp_files", nargs='+',
-                        required=True, help="Stamps filenames to plot")
+    parser.add_argument("stamp_files", nargs='+',
+                        help="Stamps filenames to plot")
     parser.add_argument("--lc_files", nargs='+',
                         required=True, help="lightcurve filenames to plot")
     parser.add_argument("--outdir", type=str, action='store', default=None,
