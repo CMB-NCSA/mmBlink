@@ -934,8 +934,7 @@ def write_lightcurve(args):
     t0 = time.time()
     d = datetime.datetime.today()
     date = d.isoformat('T', 'seconds')
-    comment = f"# Lightcurve file created by: spt3g_cutter-{spt3g_cutter.__version__} on {date}\n"
-
+    comment = f"# Lightcurve file created on {date}\n"
     yaml_file = os.path.join(args.outdir, 'lightcurve.yaml')
     with open(yaml_file, 'w') as lightcurve_file:
         lightcurve_file.write(comment)
@@ -957,7 +956,7 @@ def write_manifest(args):
 
     dt = datetime.datetime.today()
     date = dt.isoformat('T', 'seconds')
-    comment = f"Manifest file created by: spt3g_cutter-{spt3g_cutter.__version__} on {date}"
+    comment = f"Manifest file created on {date}"
     d = args.__dict__
     manifest["metadata"] = comment
     for key in ordered:
