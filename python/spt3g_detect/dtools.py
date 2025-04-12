@@ -29,6 +29,7 @@ from astropy.wcs import WCS
 from astropy.io import ascii
 from photutils.utils.exceptions import NoDetectionsWarning
 import spt3g_detect.cutterlib as cutterlib
+import copy
 
 import warnings
 # to ignore astropy NoDetectionsWarning
@@ -926,6 +927,18 @@ class g3detect:
         self.logger.info(msg)
 
 
+def check_index_ncoords_columns(catalog):
+    # Make sure that index is present as a column
+    if 'index' not in catalog.colnames:
+        tblidx = np.arange(len(catalog)) + 1
+        catalog.add_column(tblidx, name='index', index=0)
+    if 'ncoords' not in catalog.columns:
+        ncoords = np.ones(len(catalog), dtype='int')
+        catalog.add_column(ncoords, name='ncoords')
+
+    return catalog
+
+
 def remove_non_repeat_sources(catalog, ncoords=1):
     # Remove entries from catalog with ncoords <= nr
     if ncoords > 1:
@@ -1318,12 +1331,13 @@ def find_dual_detections(t1, t2, separation=20, plot=False):
     stacked_centroids.add_index('index')
     stacked_centroids.meta['band'] = f"{band1}_{band2}"
 
-    logger.debug("After Update")
-    logger.debug("#### stacked_centroids\n")
+    logger.debug("After Update[find_dual_detections]")
+    logger.debug("#### stacked_centroids ####")
     t = stacked_centroids['label', 'xcentroid', 'ycentroid', 'sky_centroid_dms',
                           'obs', 'obs_max', 'max_value', 'ncoords',
                           'eccentricity', 'elongation', 'ellipticity', 'area']
-    logger.debug(f"\n{t}\n")
+    logger.debug(f"\n{t}")
+    logger.debug("#### ---- ###")
 
     return stacked_centroids
 
@@ -1355,8 +1369,10 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
     if len(labelIDs) < 2:
         logger.warning("Will not run find_unique_centroids() -- < 2 catalogs to match!")
         logger.warning(f"labelIDs: {labelIDs}")
+        stacked_centroids = copy.deepcopy(table_centroids[labelIDs[0]])
+        stacked_centroids = check_index_ncoords_columns(stacked_centroids)
         # Return the 1st and only element in the dictionary -- as the merged centroids
-        return table_centroids[labelIDs[0]]
+        return stacked_centroids
 
     for k in range(len(labelIDs)-1):
         # Select current and next table IDs
@@ -1368,13 +1384,13 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         # and make shorcuts of tables
         # For k > 0 we used the stacked/combined catalog
         if k == 0:
-            cat1 = table_centroids[label1]['sky_centroid']
-            t1 = table_centroids[label1]
+            t1 = copy.deepcopy(table_centroids[label1])
+            cat1 = t1['sky_centroid']
         else:
-            cat1 = stacked_centroids['sky_centroid']
-            t1 = stacked_centroids
-        cat2 = table_centroids[label2]['sky_centroid']
-        t2 = table_centroids[label2]
+            t1 = copy.deepcopy(stacked_centroids)
+            cat1 = t1['sky_centroid']
+        t2 = copy.deepcopy(table_centroids[label2])
+        cat2 = t2['sky_centroid']
 
         # Find matching objects to avoid duplicates
         idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
@@ -1457,9 +1473,10 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         stacked_centroids['ycentroid'].info.format = '.2f'
         stacked_centroids.add_index('index')
         logger.debug(f"centroids Done for {label1}")
-        logger.debug("After Update")
-        logger.debug("#### stacked_centroids\n")
-        logger.debug(f"\n{stacked_centroids}\n")
+        logger.debug("After Update [find_unique_centroids]")
+        logger.debug("#### stacked_centroids ####")
+        logger.debug(f"\n{stacked_centroids}")
+        logger.debug("#### ---------  ####\n")
 
     return stacked_centroids
 

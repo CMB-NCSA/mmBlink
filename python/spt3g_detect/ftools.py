@@ -430,7 +430,7 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
             days = f"{days:.2f}"
 
             # axs[j, i].axis('off')
-            axs[j, i].imshow(image_data, origin='lower', cmap='viridis', vmin=-50, vmax=+50)
+            axs[j, i].imshow(image_data, origin='lower', cmap='viridis', vmin=-35, vmax=+35)
             axs[j, i].set_xticks([])
             axs[j, i].set_yticks([])
             axs[j, i].set_xticklabels([])
