@@ -896,6 +896,7 @@ class g3detect:
                 fitsfile = f"{self.config.outdir}/{stamp_name}_{band}.fits"
                 self.logger.debug(f"Combining into: {fitsfile}")
                 filenames = self.cutout_names[stamp_name][band]
+                # Sort the filenames -- will be sorted by obsID in the filename
                 filenames.sort()
                 concatenate_fits(filenames, fitsfile, stamp_name, band, position)
                 remove_files(filenames)
@@ -2232,3 +2233,29 @@ def astropy2fitsio_header(header):
         hlist.append({'name': key, 'value': header[key], 'comment': header.comments[key]})
     h = fitsio.FITSHDR(hlist)
     return h
+
+
+def replace_element(my_list, old_element, new_element):
+    """
+    Replaces an element in a list if it exists.
+
+    Args:
+        my_list: The list to modify.
+        old_element: The element to replace.
+        new_element: The new element to insert.
+    """
+    if old_element in my_list:
+        index = my_list.index(old_element)
+        my_list[index] = new_element
+    return my_list
+
+
+def sort_bands(bands):
+    """
+    Sorting gymastics for bands when 90Ghz is present
+    """
+    if '90GHz' in bands:
+        bands = replace_element(bands, '90GHz', '090GHz')
+        bands.sort(reverse=True)
+        bands = replace_element(bands, '090GHz', '90GHz')
+    return bands

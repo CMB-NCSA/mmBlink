@@ -70,9 +70,9 @@ def cmdline():
                         help="The number of threads used by numexpr 0=automatic, 1=single [default]")
 
     args = parser.parse_args()
-    # if args.dual_detection == args.single_detection:
-    #     raise ValueError("Must set --dual_detection or --single_detection")
-    args.detect_bands.sort()
+    # Sort the bands
+    bands = du.sort_bands(args.detect_bands)
+    args.detect_bands = bands
     return args
 
 
