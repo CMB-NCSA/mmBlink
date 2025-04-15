@@ -29,7 +29,7 @@ def cmdline():
     parser.add_argument("--write_obscat", action='store_true', default=False,
                         help="Write out the catalogs for each obsID/band")
     parser.add_argument("--stamp_size", type=float, action='store', default=10,
-                        help="Size (in arcmin) of the stamps to be cut (default:10)")
+                        help="Size (in arcmin) of the stamps to be cut [default:10 arcmin]")
     parser.add_argument("--prefix", type=str, action='store', default="SPT3G",
                         help="Prefix for IAU ID for objects (default: SPT3G)")
     # Logging options (loglevel/log_format/log_format_date)
@@ -50,11 +50,11 @@ def cmdline():
     parser.add_argument("--rms2D_image", action='store_true', default=False,
                         help="Create a FITS image of the Background2D")
     parser.add_argument("--npixels", action='store', type=int, default=20,
-                        help="Compress output files with astropy.io.fits.CompImageHDU")
+                        help="Minimum number of pixels in detection")
     parser.add_argument("--nsigma_thresh", action='store', type=float, default=5.0,
-                        help="Number of sigmas use to compute the detection threshold")
+                        help="Number of sigmas use to compute the detection threshold [default: 5]")
     parser.add_argument("--max_sep", action='store', type=float, default=20.0,
-                        help="Maximum angular separation to match sources in arcsec")
+                        help="Maximum angular separation to match sources in arcsec [default: 20 arcsec]")
     parser.add_argument("--ell_cut", action='store', type=float, default=0.3,
                         help="Ellipticity cut [default=0.3]")
     parser.add_argument("--plot", action='store_true', default=False,

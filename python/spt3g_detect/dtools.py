@@ -438,7 +438,7 @@ class g3detect:
             nr = len(inds_ell)
             if nr > 0:
                 catsize = len(cat)
-                self.logger.info(f"Removing {nr} source with ellipticity >= {self.config.ell_cut}")
+                self.logger.info(f"Removing {nr} source(s) with ellipticity >= {self.config.ell_cut}")
                 self.logger.debug("Will remove:")
                 if self.logger.getEffectiveLevel() == logging.DEBUG:
                     print(cat[PPRINT_KEYS][inds_ell])
