@@ -904,11 +904,10 @@ class g3detect:
     def write_centroids(self, catalog, band=None):
 
         # Make a copy of the catalog, so that changes are not propagated
-        CAT_KEYS = ['index', 'id', 'band', 'label',
-                    'obs_max', 'obs',
+        CAT_KEYS = ['index', 'id', 'band', 'label', 'obs_max',
                     'xcentroid', 'ycentroid',
                     'sky_centroid', 'sky_centroid_dms',
-                    'max_value', 'ellipticity', 'area', 'ncoords']
+                    'max_value', 'snr_max', 'ellipticity', 'area', 'ncoords']
 
         # Add id -- only if not already there
         if 'id' not in catalog.columns:
@@ -1393,6 +1392,12 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
         t2 = copy.deepcopy(table_centroids[label2])
         cat2 = t2['sky_centroid']
 
+        # Remove 'obs' from tables if present
+        if 'obs' in t1.columns:
+            t1.remove_column('obs')
+        if 'obs' in t2.columns:
+            t2.remove_column('obs')
+
         # Find matching objects to avoid duplicates
         idxcat1, idxcat2, d2d, _ = cat2.search_around_sky(cat1, max_sep)
         # Define idxnew, the objects not matched in table2/cat2 that need to be appended
@@ -1408,6 +1413,7 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
             yy_pix = stack_cols_lists(t1['ycentroid'].data, t2['ycentroid'].data, idxcat1, idxcat2)
             value_max = stack_cols_lists(t1['max_value'].data, t2['max_value'].data, idxcat1, idxcat2, pad=True)
             obs_max = stack_cols_lists(t1['obs_max'].data, t2['obs_max'].data, idxcat1, idxcat2, pad=True)
+            snr_max = stack_cols_lists(t1['snr_max'].data, t2['snr_max'].data, idxcat1, idxcat2, pad=True)
             # If ncoords already exists in the columns we will stack them
             if 'ncoords' in t1.columns and 'ncoords' in t2.columns:
                 ncoords = stack_cols_lists(t1['ncoords'].data, t2['ncoords'].data, idxcat1, idxcat2)
@@ -1418,17 +1424,20 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
             yy_pix = stack_cols_lists(yy_pix, t2['ycentroid'].data, idxcat1, idxcat2)
             value_max = stack_cols_lists(value_max, t2['max_value'].data, idxcat1, idxcat2, pad=True)
             obs_max = stack_cols_lists(obs_max, t2['obs_max'].data, idxcat1, idxcat2, pad=True)
+            snr_max = stack_cols_lists(snr_max, t2['snr_max'].data, idxcat1, idxcat2, pad=True)
             if 'ncoords' in t2.columns:
                 ncoords = stack_cols_lists(ncoords, t2['ncoords'].data, idxcat1, idxcat2)
 
         # Here we update the max_values and obs_max label
         # We make them np.array so we can operate on them
         value_max = np.array(value_max)
+        snr_max = np.array(snr_max)
         obs_max = np.array(obs_max)
         idmax = value_max.argmax(axis=1)
         # We store them back in the same arrays/lists
         value_max = value_max.max(axis=1)
         obs_max = [obs_max[i][idmax[i]] for i in range(len(idmax))]
+        snr_max = [snr_max[i][idmax[i]] for i in range(len(idmax))]
 
         # If we have unmatched objects in cat2 (i.e. idxnew has elements), we append these
         if len(idxnew2) > 0:
@@ -1463,15 +1472,18 @@ def find_unique_centroids(table_centroids, separation=20, plot=False):
             stacked_centroids.add_column(tblidx, name='index', index=0)
         else:
             stacked_centroids['index'] = tblidx
+
         stacked_centroids['sky_centroid'] = coords
         stacked_centroids['xcentroid'] = xc_pix
         stacked_centroids['ycentroid'] = yc_pix
         stacked_centroids['ncoords'] = ncoords
         stacked_centroids['obs_max'] = obs_max
+        stacked_centroids['snr_max'] = snr_max
         stacked_centroids['max_value'] = value_max
         stacked_centroids['max_value'].info.format = '.2f'
         stacked_centroids['xcentroid'].info.format = '.2f'
         stacked_centroids['ycentroid'].info.format = '.2f'
+        stacked_centroids['snr_max'].info.format = '.2f'
         stacked_centroids.add_index('index')
         logger.debug(f"centroids Done for {label1}")
         logger.debug("After Update [find_unique_centroids]")
@@ -1923,8 +1935,11 @@ def detect_with_photutils(data, wgt=None, mask=None, nsigma_thresh=3.5, npixels=
     tbl['ellipticity'].info.format = '.2f'
     tbl['eccentricity'].info.format = '.2f'
     tbl['sky_centroid_dms'] = tbl['sky_centroid'].to_string('hmsdms', precision=0)
+    snr_max = compute_snr(tbl, threshold/nsigma_thresh, key='max_value')
+    tbl.add_column(snr_max, name='snr_max')
+    tbl['snr_max'].info.format = '.2f'
     print(tbl['label', 'xcentroid', 'ycentroid', 'sky_centroid', 'sky_centroid_dms',
-              'max_value', 'eccentricity', 'elongation', 'ellipticity', 'area'])
+              'max_value', 'snr_max', 'eccentricity', 'elongation', 'ellipticity', 'area'])
     if plot:
         t1 = time.time()
         if rms2D:
@@ -2207,6 +2222,29 @@ def remove_objects_near_sources(cat, field, point_source_file=None, max_dist=5*u
     else:
         LOGGER.info("No matches found in sources catalog")
     return cat
+
+
+def compute_snr(catalog, sigma, key='max_value'):
+
+    """
+    Compute signal-to-noise ratio for catalog
+
+    Parameters:
+    - catalog: input catalog. We use 'max_value' from the catalog
+      as 'signal'
+    - sigma: The estimage of the noise (sigma). It can be a scalar
+      (i.e.: same for all pixels), or a 2d array.
+    """
+
+    # single scalar value for all objects
+    if np.isscalar(sigma):
+        noise = sigma
+    # we have 2d numpy array. We use x,y positions
+    else:
+        x = np.round(catalog['xcentroid'].data).astype(int)
+        y = np.round(catalog['ycentroid'].data).astype(int)
+        noise = sigma[y, x]
+    return catalog[key].data/noise
 
 
 def astropy2fitsio_header(header):
