@@ -19,6 +19,8 @@ def cmdline():
                         required=True, help="Location for output files")
     parser.add_argument("--plot_format", type=str, action='store', default="png",
                         help="File format for plot: png, pdf, jpeg, tiff, svg, eps (default=png)")
+    parser.add_argument("--show_plot", action='store_true', default=False,
+                        help="Show plot (default=False)")
     parser.add_argument("--obsmin", type=int, default=None,
                         help="Minimum observation ID to include in plot (default=None)")
     parser.add_argument("--obsmax", type=int, default=None,
@@ -79,5 +81,6 @@ if __name__ == "__main__":
                           obsmin=args.obsmin,
                           obsmax=args.obsmax,
                           outdir=args.outdir,
-                          format=args.plot_format)
+                          format=args.plot_format,
+                          show=args.show_plot)
         k = k + 1

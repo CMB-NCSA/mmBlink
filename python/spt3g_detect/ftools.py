@@ -367,7 +367,7 @@ def load_fits_table(fits_table_file, target_id=None):
 
 
 def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
-                   obsmin=None, obsmax=None, format="png", outdir=""):
+                   obsmin=None, obsmax=None, format="png", outdir="", show=False):
 
     # Use ScalarFormatter with useMathText=True for non-scientific notation
     formatter = ticker.ScalarFormatter(useMathText=True)
@@ -493,7 +493,8 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
     ax1.yaxis.set_major_formatter(formatter)
 
     fig.suptitle(f"{id} | SN={snr:.1f}")
-    plt.show()
+    if show:
+        plt.show()
     du.create_dir(outdir)
     file = os.path.join(outdir, f"{id}.{format}")
     fig.savefig(file)
