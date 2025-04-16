@@ -794,6 +794,7 @@ class g3detect:
         # Extract ra and dec from cat:
         ra = cat['sky_centroid'].ra.data
         dec = cat['sky_centroid'].dec.data
+        snr_max = cat['snr_max'].data
 
         xsize = self.config.stamp_size  # arcmin
         ysize = self.config.stamp_size  # arcmin
@@ -835,6 +836,7 @@ class g3detect:
         # Pass the centroids to the class
         self.ra_centroid = ra
         self.dec_centroid = dec
+        self.snr_max = snr_max
 
     def repack_lc(self):
         """
@@ -892,13 +894,14 @@ class g3detect:
         self.logger.info("Repacking stamps into single file per source")
         for k, stamp_name in enumerate(self.cutout_names):
             position = (self.ra_centroid[k], self.dec_centroid[k])
+            snr_max = self.snr_max[k]
             for band in self.cutout_names[stamp_name].keys():
                 fitsfile = f"{self.config.outdir}/{stamp_name}_{band}.fits"
                 self.logger.debug(f"Combining into: {fitsfile}")
                 filenames = self.cutout_names[stamp_name][band]
                 # Sort the filenames -- will be sorted by obsID in the filename
                 filenames.sort()
-                concatenate_fits(filenames, fitsfile, stamp_name, band, position)
+                concatenate_fits(filenames, fitsfile, stamp_name, band, position, snr_max)
                 remove_files(filenames)
 
     def write_centroids(self, catalog, band=None):
@@ -957,7 +960,7 @@ def remove_non_repeat_sources(catalog, ncoords=1):
     return cutcat
 
 
-def concatenate_fits(input_files, output_file, id, band, position):
+def concatenate_fits(input_files, output_file, id, band, position, snr_max):
     """
     Concatenates a list of FITS files into a single multi-HDU FITS file.
     Each input FITS file has two extensions: SCI (Science) and WGT (Weight).
@@ -974,6 +977,7 @@ def concatenate_fits(input_files, output_file, id, band, position):
         primary_header = {
             'ID': id,
             'BAND': band,
+            'SNRMAX': snr_max,
             'NFILES': len(input_files),
             'RA': position[0],
             'DEC': position[1],

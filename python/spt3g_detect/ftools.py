@@ -66,6 +66,12 @@ def g3_to_fits(g3file, trim=True, compress=False, quantize_level=16.0, overwrite
                 fitsfile = f"{basename}.fits"
             else:
                 fitsfile = f"{basename}_{band}.fits"
+
+            # If fitsfile already exists and overwrite is False we do nothing
+            if overwrite is False and os.path.exists(fitsfile):
+                logger.info(f"Skipping file: {fitsfile} -- already exists")
+                continue
+
             if trim:
                 field = metadata['FIELD'][0]
                 logger.info(f"Will write trimmed FITS file for field: {field}")
@@ -320,6 +326,7 @@ def load_fits_stamp(fits_file):
                 obsid = hdul[sci_ext_name].header['OBSID']
                 images[obsid] = hdul[sci_ext_name].data
                 headers[obsid] = hdul[sci_ext_name].header
+                headers[obsid]['SNRMAX'] = primary_header['SNRMAX']
 
     return images, headers, id, band
 
@@ -417,6 +424,7 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
             header = headers_dict[band][ID]
             date_beg = header["DATE-BEG"]
             obsid = header["OBSID"]
+            snr = header['SNRMAX']
             t = Time(date_beg, format='isot')
             obstime = f"{t.mjd:.2f}"
 
@@ -445,7 +453,6 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
 
     ax0 = fig.add_subplot(gs[n_bands, :])
     ax0.set_axis_off()
-    ax0.set_ylabel("hello", size="large")
     ax1 = fig.add_subplot(gs[-1, :])
     fig.subplots_adjust(bottom=0.1)
 
@@ -485,7 +492,7 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
     ax1.xaxis.set_major_formatter(formatter)
     ax1.yaxis.set_major_formatter(formatter)
 
-    fig.suptitle(f"{id}")
+    fig.suptitle(f"{id} | SN={snr:.1f}")
     plt.show()
     du.create_dir(outdir)
     file = os.path.join(outdir, f"{id}.{format}")
