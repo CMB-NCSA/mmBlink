@@ -386,7 +386,7 @@ def plot_stamps_lc(images_dict, headers_dict, lightcurve_dict,
             continue
         elif n_images != len(images_dict[band].keys()):
             raise ValueError(f"Mismatch of observations for band: {band}")
-        k = k + 1
+        k += 1
     # Select index for obsid range
     selected_IDs = np.asarray(list(selected_IDs))
     i1 = 0

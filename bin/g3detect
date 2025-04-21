@@ -55,7 +55,7 @@ def cmdline():
                         help="Number of sigmas use to compute the detection threshold [default: 5]")
     parser.add_argument("--max_sep", action='store', type=float, default=20.0,
                         help="Maximum angular separation to match sources in arcsec [default: 20 arcsec]")
-    parser.add_argument("--ell_cut", action='store', type=float, default=0.3,
+    parser.add_argument("--ell_cut", action='store', type=float, default=1.0,
                         help="Ellipticity cut [default=0.3]")
     parser.add_argument("--plot", action='store_true', default=False,
                         help="Make plots with detection diagnostics?")

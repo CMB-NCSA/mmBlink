@@ -54,14 +54,16 @@ if __name__ == "__main__":
 
     # Check that ids are the same in case we have more than one key
     id0 = ids[bands[0]]
+    n0 = len(id0)
     if nbands > 1:
         for k in range(nbands-1):
-            k = k + 1
+            k += 1
             idn = ids[bands[k]]
+            nk = len(idn)
             if idn == id0:
-                print(f"Arrays are the same for bands: {bands[0]} -- {bands[k]}")
+                print(f"arrays are the same for bands: {bands[0]} -- {bands[k]}")
             else:
-                raise ValueError(f"Arrays are not same for bands: {bands[0]} -- {bands[k]}")
+                print(f"# WARNING: LC arrays are not same for bands: {bands[0]} [{n0}]-- {bands[k]} [{nk}]")
 
     # Loop over all ids and plot one at a time
     k = 0
@@ -75,7 +77,11 @@ if __name__ == "__main__":
             # Make sure ids are the same
             if id != id_stamp:
                 raise ValueError(f"Object ID are not the same {id}!={id_stamp}")
-            lightcurve[band] = LC[band][k]
+            try:
+                lightcurve[band] = LC[band][k]
+            except IndexError:
+                print(f"# WARNING: No {band} lightcurve for {id}")
+
         # Plot ID
         ft.plot_stamps_lc(images, headers, lightcurve,
                           obsmin=args.obsmin,
@@ -83,4 +89,4 @@ if __name__ == "__main__":
                           outdir=args.outdir,
                           format=args.plot_format,
                           show=args.show_plot)
-        k = k + 1
+        k += 1

@@ -209,7 +209,12 @@ class g3detect:
             self.logger.info(f"{self.config.files[0]} is a list of files")
             # Now read them in
             with open(self.config.files[0], 'r') as f:
-                lines = f.read().splitlines()
+                lines = []
+                for line in f.read().splitlines():
+                    if line[0] == "#":
+                        continue
+                    lines.append(line)
+                # lines = f.read().splitlines()
             self.logger.info(f"Read: {len(lines)} input files")
             self.config.files = lines
             self.nfiles = len(lines)
@@ -433,7 +438,10 @@ class g3detect:
             # Remove objects that match the sources catalog for that field
             cat = remove_objects_near_sources(cat, field, self.config.point_source_file)
 
-            # Cut in ellipticity
+            # Cut in ellipticity -- first replace nan for a large number (i.e. 99)
+            e = cat['ellipticity']
+            e[np.isnan(e)] = 99
+            cat['ellipticity'] = e
             inds_ell = np.where(cat['ellipticity'] >= self.config.ell_cut)[0]
             nr = len(inds_ell)
             if nr > 0:
@@ -663,6 +671,11 @@ class g3detect:
     def collect_dual(self):
         # Function to collect and match sources in dual detection
         self.match_dual_bands()
+        # if no matches we end here
+        if len(self.matched_cat) == 0:
+            self.logger.warning("No sources could be matched -- stopping here")
+            exit()
+            return
         self.logger.info("Running unique centroids for dual matching per obsID")
         self.stacked_centroids = find_unique_centroids(self.matched_cat,
                                                        separation=self.config.max_sep,
@@ -682,10 +695,20 @@ class g3detect:
         # Store the centroids in dict keyed to band.
         for band in self.config.detect_bands:
             self.logger.info(f"Getting unique centroids for band: {band}")
+            # Proceed only if we have any catalogs
+            if len(self.cat[band]) == 0:
+                self.logger.warning(f"Skipping band: {band} --  no catalogs")
+                continue
             self.centroids[band] = find_unique_centroids(self.cat[band],
                                                          separation=self.config.max_sep,
                                                          plot=False)
         # And now get the unique/stacked centroids
+        if len(self.centroids) == 0:
+            self.logger.warning("Skipping stacked_centroids --  no catalogs")
+            self.logger.warning("Will NOT write centroids")
+            self.stacked_centroids = None
+            return
+
         self.stacked_centroids = find_unique_centroids(self.centroids,
                                                        separation=self.config.max_sep,
                                                        plot=False)
@@ -694,12 +717,15 @@ class g3detect:
                                                            ncoords=self.config.nr)
         # Write catalogs with centroids and per band
         self.write_centroids(self.stacked_centroids)
-        for band in self.config.detect_bands:
+        for band in self.centroids.keys():
             self.write_centroids(self.centroids[band], band=band)
         return
 
     def make_stamps_and_lighcurves(self):
         # Generate cutouts and repack stamps and lightcurve results
+        if self.stacked_centroids is None:
+            self.logger.warning("Will not make stamps or light curves: NO centroids")
+            return
         self.run_cutouts(self.stacked_centroids)
         self.repack_lc()
         self.repack_stamps()

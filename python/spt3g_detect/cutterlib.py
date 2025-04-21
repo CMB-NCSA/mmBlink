@@ -570,15 +570,15 @@ def fitscutter(filename, ra, dec, cutout_names, rejected_names, lightcurve,
 
         # Check if in field extent
         if get_uniform_coverage and not in_uniform_coverage(ra[k], dec[k], object):
-            LOGGER.debug(f"(RA,DEC):{ra[k]},{dec[k]} outside field extent")
-            rejected_ids.append(objID[k])
+            LOGGER.warning(f"Rejected {objID[k]} (RA,DEC):{ra[k]},{dec[k]} outside field extent")
+            # rejected_ids.append(objID[k])
             continue
 
         # Make sure the (x0,y0) is contained within the image
         if x0 < 0 or y0 < 0 or x0 > NAXIS1 or y0 > NAXIS2:
-            LOGGER.debug(f"(RA,DEC):{ra[k]},{dec[k]} outside {filename}")
-            LOGGER.debug(f"(x0,y0):{x0},{y0} > {NAXIS1},{NAXIS2}")
-            rejected_ids.append(objID[k])
+            LOGGER.warning(f"Rejected {objID[k]} (RA,DEC):{ra[k]},{dec[k]} outside {filename}")
+            LOGGER.warning(f"Rejected {objID[k]} (x0,y0):{x0},{y0} > {NAXIS1},{NAXIS2}")
+            # rejected_ids.append(objID[k])
             continue
 
         # Make sure we are not going beyond the limits
@@ -603,12 +603,7 @@ def fitscutter(filename, ra, dec, cutout_names, rejected_names, lightcurve,
             HDU_WGT = hdunum['WGT']
             try:
                 data_WGT = float(ifits[HDU_WGT][int(y0), int(x0)][0][0])
-                if data_WGT != 0.0:
-                    data_SCI = float(ifits[HDU_SCI][int(y0), int(x0)][0][0])
-                else:
-                    LOGGER.debug(f"(RA,DEC):{ra[k]},{dec[k]} zero flux weight")
-                    rejected_ids.append(objID[k])
-                    continue
+                data_SCI = float(ifits[HDU_SCI][int(y0), int(x0)][0][0])
             except Exception as e:
                 logger.error(e)
                 data_SCI = float("NaN")
@@ -682,12 +677,13 @@ def fitscutter(filename, ra, dec, cutout_names, rejected_names, lightcurve,
         # Remove the rejected ids from objID list,
         # Otherwise index search will fail
         for id in rejected_ids:
-            logger.debug(f"Removing rejected id:{id} from lightcurve[objID]")
+            logger.warning(f"Removing rejected id:{id} from lightcurve[objID]")
             objID.remove(id)
         # We add the objID array after we pruned it from rejected ids
         lc_local['objID'] = objID
         lc_local['rejected_ids'] = rejected_ids
         lightcurve[lcID] = lc_local
+
     if len(rejected_ids) > 0:
         logger.info(f"Rejected {len(rejected_ids)} positions for {filename}")
 
@@ -847,18 +843,16 @@ def repack_lightcurve_band_filetype(lightcurve, BAND, FILETYPE, args):
             idx = lightcurve[obs]['objID'].index(objID)
             try:
                 flux_wgt = lightcurve[obs]['flux_WGT'][idx]
-                # Only store if flux is > 0
-                if flux_wgt > 0:
-                    flux_WGT.append(flux_wgt)
-                    # storing dates
-                    dates_ave.append(DATE_AVE)
-                    dates_beg.append(DATE_BEG)
-                    dates_end.append(DATE_END)
-                    # storing obsid
-                    obsids.append(OBSID)
-                    # storing flux
-                    flux_sci = lightcurve[obs]['flux_SCI'][idx]
-                    flux_SCI.append(flux_sci)
+                flux_WGT.append(flux_wgt)
+                # storing dates
+                dates_ave.append(DATE_AVE)
+                dates_beg.append(DATE_BEG)
+                dates_end.append(DATE_END)
+                # storing obsid
+                obsids.append(OBSID)
+                # storing flux
+                flux_sci = lightcurve[obs]['flux_SCI'][idx]
+                flux_SCI.append(flux_sci)
             except KeyError:
                 flux_wgt = None
                 LOGGER.warning(f"NO flux_WGT - obs:{objID} date:{DATE_BEG} BAND:{BAND} FILETYPE: {FILETYPE}")
