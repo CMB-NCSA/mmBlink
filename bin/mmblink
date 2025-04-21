@@ -6,12 +6,12 @@ import time
 
 def cmdline():
     """
-    Parses command-line arguments for the SPT-3G transient detection script.
+    Parses command-line arguments for the mm-transient detection script.
 
     Returns:
         argparse.Namespace: Parsed command-line arguments.
     """
-    parser = argparse.ArgumentParser(description="spt3g transient detection")
+    parser = argparse.ArgumentParser(description="mm-wave transient detection")
     parser.add_argument("files", nargs='+',
                         help="Filename(s) to ingest")
     parser.add_argument("--outdir", type=str, action='store', default=None,
