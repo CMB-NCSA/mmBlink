@@ -1,4 +1,4 @@
-import spt3g_detect.dtools as du
+import mmblink.dtools as du
 from spt3g import core, maps, sources
 import numpy as np
 import logging

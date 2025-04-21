@@ -21,14 +21,14 @@ import types
 import magic
 import errno
 import time
-import spt3g_detect
+import mmblink
 from spt3g import core, maps
 from spt3g import sources
 import fitsio
 from astropy.wcs import WCS
 from astropy.io import ascii
 from photutils.utils.exceptions import NoDetectionsWarning
-import spt3g_detect.cutterlib as cutterlib
+import mmblink.cutterlib as cutterlib
 import copy
 
 import warnings
@@ -168,7 +168,7 @@ class g3detect:
         Sets up the logging configuration using `create_logger` and logs key info.
         Configures logging level, format, and other related settings based on the
         configuration object. Logs the start of logging and the version of the
-        `spt3g_detect` package.
+        `mmblink` package.
 
         Raises:
         - ValueError: If the logger configuration is invalid or incomplete.
@@ -181,7 +181,7 @@ class g3detect:
                       log_format=self.config.log_format,
                       log_format_date=self.config.log_format_date)
         self.logger.info(f"Logging Started at level:{self.config.loglevel}")
-        self.logger.info(f"Running spt3g_ingest version: {spt3g_detect.__version__}")
+        self.logger.info(f"Running spt3g_ingest version: {mmblink.__version__}")
 
     def check_input_files(self):
         """
