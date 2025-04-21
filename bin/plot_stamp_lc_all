@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import spt3g_detect.ftools as ft
+import mmblink.ftools as ft
 import argparse
 import os
 
